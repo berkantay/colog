@@ -31,11 +31,13 @@ OPTIONS:
 
 CONTROLS:
     q              Quit the application
+    g              Export last 50 log lines from each container for LLM analysis
     Tab            Navigate between containers
     Ctrl+C         Quit the application
 
 DESCRIPTION:
     Colog displays live logs from all running Docker containers in a clean,
     grid-based terminal interface. Each container gets its own pane with
-    color-coded titles and real-time log streaming.`)
+    color-coded titles and real-time log streaming. Press 'g' to export 
+    recent logs to a markdown file and clipboard for LLM analysis.`)
 }

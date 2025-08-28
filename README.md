@@ -47,6 +47,18 @@ Download the latest release from [GitHub Releases](https://github.com/berkantay/
 colog
 ```
 
+The application will automatically:
+1. **Discover** all running Docker containers
+2. **Arrange** them in an optimal grid layout
+3. **Stream** live logs from each container in real-time
+4. **Color-code** each container with unique borders and titles
+
+### Getting Started
+1. Make sure you have Docker running with at least one active container
+2. Run `colog` in your terminal
+3. Watch live logs stream from all containers simultaneously
+4. Use keyboard controls to interact with the application
+
 ### Help
 ```bash
 colog --help
@@ -54,11 +66,17 @@ colog --help
 
 ## ⌨️ Keyboard Controls
 
-| Key | Action |
-|-----|--------|
-| `q` | Quit application |
-| `Ctrl+C` | Force quit |
-| `Tab` | Navigate between containers (future feature) |
+| Key | Action | Description |
+|-----|--------|-------------|
+| `q` | Quit application | Cleanly exit Colog and return to terminal |
+| `g` | Export logs | Export last 50 log lines from each container for LLM analysis |
+| `Tab` | Navigate containers | Switch focus between different container log panels |
+| `Ctrl+C` | Force quit | Immediately terminate the application |
+
+### Navigation Tips
+- **Container Focus**: Use `Tab` to cycle through containers and highlight the active panel
+- **Log Export**: Press `g` to quickly export recent logs for analysis or sharing
+- **Clean Exit**: Always use `q` for a proper shutdown that ensures all resources are cleaned up
 
 ## 🏗️ How It Works
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"strings"
@@ -63,25 +62,27 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 		ShowStderr: true,
 		Follow:     true,
 		Timestamps: true,
-		Tail:       "all", // Show all historical logs
+		Tail:       "100", // Show last 100 lines of historical logs
 	}
 
 	logs, err := ds.client.ContainerLogs(ctx, containerID, options)
 	if err != nil {
 		return err
 	}
-	defer logs.Close()
 
 	go func() {
 		defer close(logCh)
-		reader := bufio.NewReader(logs)
+		defer logs.Close()
+		
+		// Use io.Reader directly instead of bufio.Reader to handle binary data better
+		buf := make([]byte, 4096)
 		
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				line, err := reader.ReadString('\n')
+				n, err := logs.Read(buf)
 				if err != nil {
 					if err == io.EOF {
 						time.Sleep(100 * time.Millisecond)
@@ -90,9 +91,25 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 					return
 				}
 				
-				entry := parseLogEntry(containerID, line)
-				if entry.Message != "" {
-					logCh <- entry
+				if n > 0 {
+					// Process the raw data
+					data := string(buf[:n])
+					lines := strings.Split(data, "\n")
+					
+					for _, line := range lines {
+						if len(line) == 0 {
+							continue
+						}
+						
+						entry := parseLogEntry(containerID, line)
+						if entry.Message != "" {
+							select {
+							case logCh <- entry:
+							case <-ctx.Done():
+								return
+							}
+						}
+					}
 				}
 			}
 		}
@@ -109,36 +126,70 @@ type LogEntry struct {
 }
 
 func parseLogEntry(containerID, line string) LogEntry {
-	line = strings.TrimSpace(line)
 	if len(line) == 0 {
 		return LogEntry{}
 	}
 
-	// Docker logs may have an 8-byte header (stream type + length)
-	// Check if this looks like a Docker log header by examining the first byte
+	// Docker logs have an 8-byte header when using the multiplexed format:
+	// [0-3]: stream type (1=stdout, 2=stderr) + padding
+	// [4-7]: payload length (big-endian uint32)
+	// [8+]:  actual log content
+	
+	originalLine := line
+	
+	// Check if this line has the Docker multiplexed header
 	if len(line) >= 8 {
-		firstByte := line[0]
-		// Docker log headers start with 0, 1, or 2 (stdin, stdout, stderr)
-		if firstByte <= 2 {
+		// First byte indicates stream type: 1 for stdout, 2 for stderr
+		firstByte := byte(line[0])
+		if firstByte == 1 || firstByte == 2 {
+			// Skip the 8-byte header
 			line = line[8:]
 		}
 	}
 	
+	// Trim whitespace after header removal
+	line = strings.TrimSpace(line)
+	if len(line) == 0 {
+		return LogEntry{}
+	}
+	
+	// Try to parse timestamp if present
 	parts := strings.SplitN(line, " ", 2)
 	var timestamp time.Time
 	var message string
 	
 	if len(parts) >= 2 {
-		if ts, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
-			timestamp = ts
-			message = parts[1]
-		} else {
+		// Try multiple timestamp formats
+		timestampFormats := []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02T15:04:05.000000000Z",
+			"2006-01-02T15:04:05.000Z",
+		}
+		
+		parsed := false
+		for _, format := range timestampFormats {
+			if ts, err := time.Parse(format, parts[0]); err == nil {
+				timestamp = ts
+				message = parts[1]
+				parsed = true
+				break
+			}
+		}
+		
+		if !parsed {
+			// No valid timestamp found, treat entire line as message
 			timestamp = time.Now()
 			message = line
 		}
 	} else {
 		timestamp = time.Now()
 		message = line
+	}
+
+	// If message is still empty, use the original line as fallback
+	if message == "" {
+		message = strings.TrimSpace(originalLine)
 	}
 
 	return LogEntry{
