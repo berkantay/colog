@@ -63,7 +63,7 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 		ShowStderr: true,
 		Follow:     true,
 		Timestamps: true,
-		Tail:       "50", // Show last 50 lines of history
+		Tail:       "all", // Show all historical logs
 	}
 
 	logs, err := ds.client.ContainerLogs(ctx, containerID, options)
