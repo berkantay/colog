@@ -13,7 +13,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize the SDK
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize SDK: %v", err)
 	}
@@ -168,7 +168,7 @@ func main() {
 // Example of using the SDK in a monitoring application
 func monitoringExample() {
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize SDK: %v", err)
 	}
@@ -221,7 +221,7 @@ func monitoringExample() {
 // Example of integrating with an LLM service
 func llmIntegrationExample() {
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize SDK: %v", err)
 	}

@@ -41,7 +41,7 @@ import (
 func main() {
     // Initialize the SDK
     ctx := context.Background()
-    sdk, err := NewSDK(ctx)
+    sdk, err := NewColog(ctx)
     if err != nil {
         log.Fatalf("Failed to initialize SDK: %v", err)
     }
@@ -76,10 +76,10 @@ func main() {
 
 ## Core Concepts
 
-### SDK Instance
-The SDK provides a single entry point for all Docker operations:
+### Colog Instance
+The Colog SDK provides a single entry point for all Docker operations:
 ```go
-sdk, err := NewSDK(context.Background())
+colog, err := NewColog(context.Background())
 ```
 
 ### Container Information

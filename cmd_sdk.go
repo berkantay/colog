@@ -61,7 +61,7 @@ For detailed usage of each command, use:
 
 func runListCommand(args []string) error {
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -195,7 +195,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -288,7 +288,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -393,7 +393,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewSDK(ctx)
+	sdk, err := NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}

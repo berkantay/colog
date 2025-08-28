@@ -179,7 +179,7 @@ import (
 
 func main() {
     ctx := context.Background()
-    sdk, err := NewSDK(ctx)
+    sdk, err := NewColog(ctx)
     if err != nil {
         log.Fatal(err)
     }

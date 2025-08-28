@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// SDK provides programmatic access to Docker container logs and information
-type SDK struct {
+// Colog provides programmatic access to Docker container logs and information
+type Colog struct {
 	dockerService *DockerService
 	ctx           context.Context
 }
@@ -96,37 +96,37 @@ type LogsSummary struct {
 	ErrorCount      int       `json:"error_count"`
 }
 
-// NewSDK creates a new SDK instance
-func NewSDK(ctx context.Context) (*SDK, error) {
+// NewColog creates a new Colog SDK instance
+func NewColog(ctx context.Context) (*Colog, error) {
 	dockerService, err := NewDockerService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Docker service: %w", err)
 	}
 
-	return &SDK{
+	return &Colog{
 		dockerService: dockerService,
 		ctx:           ctx,
 	}, nil
 }
 
-// Close releases SDK resources
-func (sdk *SDK) Close() error {
-	return sdk.dockerService.Close()
+// Close releases Colog resources
+func (c *Colog) Close() error {
+	return c.dockerService.Close()
 }
 
 // ListAllContainers returns all containers (running and stopped)
-func (sdk *SDK) ListAllContainers() ([]ContainerInfo, error) {
-	return sdk.listContainers(true)
+func (c *Colog) ListAllContainers() ([]ContainerInfo, error) {
+	return c.listContainers(true)
 }
 
 // ListRunningContainers returns only running containers
-func (sdk *SDK) ListRunningContainers() ([]ContainerInfo, error) {
-	return sdk.listContainers(false)
+func (c *Colog) ListRunningContainers() ([]ContainerInfo, error) {
+	return c.listContainers(false)
 }
 
 // GetContainerByName finds a container by name
-func (sdk *SDK) GetContainerByName(name string) (*ContainerInfo, error) {
-	containers, err := sdk.ListAllContainers()
+func (c *Colog) GetContainerByName(name string) (*ContainerInfo, error) {
+	containers, err := c.ListAllContainers()
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +141,8 @@ func (sdk *SDK) GetContainerByName(name string) (*ContainerInfo, error) {
 }
 
 // GetContainerByID finds a container by ID (full or short)
-func (sdk *SDK) GetContainerByID(id string) (*ContainerInfo, error) {
-	containers, err := sdk.ListAllContainers()
+func (c *Colog) GetContainerByID(id string) (*ContainerInfo, error) {
+	containers, err := c.ListAllContainers()
 	if err != nil {
 		return nil, err
 	}
@@ -157,15 +157,15 @@ func (sdk *SDK) GetContainerByID(id string) (*ContainerInfo, error) {
 }
 
 // FilterContainers filters containers based on criteria
-func (sdk *SDK) FilterContainers(filter ContainerFilter) ([]ContainerInfo, error) {
-	containers, err := sdk.ListAllContainers()
+func (c *Colog) FilterContainers(filter ContainerFilter) ([]ContainerInfo, error) {
+	containers, err := c.ListAllContainers()
 	if err != nil {
 		return nil, err
 	}
 
 	var filtered []ContainerInfo
 	for _, container := range containers {
-		if sdk.matchesFilter(container, filter) {
+		if c.matchesFilter(container, filter) {
 			filtered = append(filtered, container)
 		}
 	}
@@ -174,30 +174,30 @@ func (sdk *SDK) FilterContainers(filter ContainerFilter) ([]ContainerInfo, error
 }
 
 // GetContainersByImage returns containers using a specific image
-func (sdk *SDK) GetContainersByImage(image string) ([]ContainerInfo, error) {
-	return sdk.FilterContainers(ContainerFilter{Image: image})
+func (c *Colog) GetContainersByImage(image string) ([]ContainerInfo, error) {
+	return c.FilterContainers(ContainerFilter{Image: image})
 }
 
 // GetContainersByImageID returns containers using a specific image ID
-func (sdk *SDK) GetContainersByImageID(imageID string) ([]ContainerInfo, error) {
-	return sdk.FilterContainers(ContainerFilter{ImageID: imageID})
+func (c *Colog) GetContainersByImageID(imageID string) ([]ContainerInfo, error) {
+	return c.FilterContainers(ContainerFilter{ImageID: imageID})
 }
 
 // GetContainerLogs retrieves logs from a specific container
-func (sdk *SDK) GetContainerLogs(containerID string, options LogOptions) ([]LogEntry, error) {
+func (c *Colog) GetContainerLogs(containerID string, options LogOptions) ([]LogEntry, error) {
 	logCh := make(chan LogEntry, 1000)
 	logs := make([]LogEntry, 0)
 
 	// Create a context for log streaming
-	ctx := sdk.ctx
+	ctx := c.ctx
 	if !options.Follow {
 		// For non-following requests, use a shorter timeout
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(sdk.ctx, 30*time.Second)
+		ctx, cancel = context.WithTimeout(c.ctx, 30*time.Second)
 		defer cancel()
 	}
 
-	err := sdk.dockerService.StreamLogs(ctx, containerID, logCh)
+	err := c.dockerService.StreamLogs(ctx, containerID, logCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stream logs: %w", err)
 	}
@@ -235,11 +235,11 @@ func (sdk *SDK) GetContainerLogs(containerID string, options LogOptions) ([]LogE
 }
 
 // GetMultipleContainerLogs retrieves logs from multiple containers
-func (sdk *SDK) GetMultipleContainerLogs(containerIDs []string, options LogOptions) (map[string][]LogEntry, error) {
+func (c *Colog) GetMultipleContainerLogs(containerIDs []string, options LogOptions) (map[string][]LogEntry, error) {
 	result := make(map[string][]LogEntry)
 	
 	for _, containerID := range containerIDs {
-		logs, err := sdk.GetContainerLogs(containerID, options)
+		logs, err := c.GetContainerLogs(containerID, options)
 		if err != nil {
 			// Log error but continue with other containers
 			result[containerID] = []LogEntry{{
@@ -257,13 +257,13 @@ func (sdk *SDK) GetMultipleContainerLogs(containerIDs []string, options LogOptio
 }
 
 // ExportLogsForLLM formats logs for LLM consumption
-func (sdk *SDK) ExportLogsForLLM(containerIDs []string, options LogOptions) (*LogsOutput, error) {
-	logsMap, err := sdk.GetMultipleContainerLogs(containerIDs, options)
+func (c *Colog) ExportLogsForLLM(containerIDs []string, options LogOptions) (*LogsOutput, error) {
+	logsMap, err := c.GetMultipleContainerLogs(containerIDs, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve logs: %w", err)
 	}
 
-	containers, err := sdk.ListAllContainers()
+	containers, err := c.ListAllContainers()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -364,8 +364,8 @@ func (sdk *SDK) ExportLogsForLLM(containerIDs []string, options LogOptions) (*Lo
 }
 
 // ExportLogsAsJSON exports logs as JSON string
-func (sdk *SDK) ExportLogsAsJSON(containerIDs []string, options LogOptions) (string, error) {
-	output, err := sdk.ExportLogsForLLM(containerIDs, options)
+func (c *Colog) ExportLogsAsJSON(containerIDs []string, options LogOptions) (string, error) {
+	output, err := c.ExportLogsForLLM(containerIDs, options)
 	if err != nil {
 		return "", err
 	}
@@ -379,8 +379,8 @@ func (sdk *SDK) ExportLogsAsJSON(containerIDs []string, options LogOptions) (str
 }
 
 // ExportLogsAsMarkdown exports logs as markdown string for LLM consumption
-func (sdk *SDK) ExportLogsAsMarkdown(containerIDs []string, options LogOptions) (string, error) {
-	output, err := sdk.ExportLogsForLLM(containerIDs, options)
+func (c *Colog) ExportLogsAsMarkdown(containerIDs []string, options LogOptions) (string, error) {
+	output, err := c.ExportLogsForLLM(containerIDs, options)
 	if err != nil {
 		return "", err
 	}
@@ -431,10 +431,10 @@ func (sdk *SDK) ExportLogsAsMarkdown(containerIDs []string, options LogOptions) 
 
 // Helper methods
 
-func (sdk *SDK) listContainers(all bool) ([]ContainerInfo, error) {
+func (c *Colog) listContainers(all bool) ([]ContainerInfo, error) {
 	// This is a simplified version - in a full implementation, you'd need to expand
 	// the DockerService to provide detailed container information
-	containers, err := sdk.dockerService.ListRunningContainers(sdk.ctx)
+	containers, err := c.dockerService.ListRunningContainers(c.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +453,7 @@ func (sdk *SDK) listContainers(all bool) ([]ContainerInfo, error) {
 	return result, nil
 }
 
-func (sdk *SDK) matchesFilter(container ContainerInfo, filter ContainerFilter) bool {
+func (c *Colog) matchesFilter(container ContainerInfo, filter ContainerFilter) bool {
 	if filter.Name != "" && !strings.Contains(container.Name, filter.Name) {
 		return false
 	}
