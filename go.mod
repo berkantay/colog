@@ -1,4 +1,4 @@
-module colog
+module github.com/berkantay/colog
 
 go 1.24.1
 
