@@ -1,6 +1,6 @@
 # Colog 🐳
 
-A sleek, minimal terminal UI for monitoring live Docker container logs in a beautiful grid layout.
+A powerful Docker container log viewer with both interactive TUI and programmatic SDK for monitoring, analysis, and LLM integration.
 
 ![Colog Demo](https://img.shields.io/badge/made%20with-Go-00ADD8?style=flat&logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -8,12 +8,21 @@ A sleek, minimal terminal UI for monitoring live Docker container logs in a beau
 
 ## ✨ Features
 
+### 🖥️ Interactive TUI Mode
 - **Live Log Streaming**: Real-time logs from all running Docker containers
 - **Grid Layout**: Beautiful, organized grid view with automatic container arrangement
 - **Color-Coded Containers**: Each container gets a unique color for easy identification
 - **Minimal & Clean**: Focus on logs with a distraction-free interface
 - **Keyboard Controls**: Simple and intuitive navigation
 - **No Configuration**: Works out of the box with your Docker setup
+
+### 🔧 SDK Mode
+- **Programmatic Access**: Extract container logs and information via Go SDK
+- **Batch Operations**: Process multiple containers simultaneously
+- **Smart Filtering**: Filter containers by name, image, status, labels, and more
+- **LLM Integration**: Export logs in JSON/Markdown formats optimized for AI analysis
+- **Time-based Queries**: Retrieve logs within specific time ranges
+- **Command-line Interface**: Use SDK features directly from the command line
 
 ## 🚀 Installation
 
@@ -41,27 +50,41 @@ Download the latest release from [GitHub Releases](https://github.com/berkantay/
 
 ## 🎮 Usage
 
-### Basic Usage
+Colog operates in two modes: **Interactive TUI** (default) and **SDK Mode** for programmatic access.
+
+### 🖥️ Interactive TUI Mode
+
 ```bash
-# Show logs from all running containers
+# Show logs from all running containers in TUI
 colog
+
+# Show help
+colog --help
 ```
 
-The application will automatically:
+The TUI application will automatically:
 1. **Discover** all running Docker containers
 2. **Arrange** them in an optimal grid layout
 3. **Stream** live logs from each container in real-time
 4. **Color-code** each container with unique borders and titles
 
-### Getting Started
-1. Make sure you have Docker running with at least one active container
-2. Run `colog` in your terminal
-3. Watch live logs stream from all containers simultaneously
-4. Use keyboard controls to interact with the application
+### 🔧 SDK Mode
 
-### Help
 ```bash
-colog --help
+# List all running containers
+colog sdk list
+
+# Get logs from a specific container
+colog sdk logs abc123 --tail 50
+
+# Export logs for LLM analysis
+colog sdk export --format markdown --tail 100
+
+# Filter containers by image
+colog sdk filter --image nginx
+
+# Show SDK help
+colog sdk --help
 ```
 
 ## ⌨️ Keyboard Controls
@@ -139,6 +162,64 @@ sudo usermod -aG docker $USER
 # Then log out and back in
 ```
 
+## 🚀 SDK Integration & LLM Usage
+
+For detailed SDK documentation and examples, see [SDK_README.md](SDK_README.md).
+
+### Quick SDK Integration Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+)
+
+func main() {
+    ctx := context.Background()
+    sdk, err := NewSDK(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer sdk.Close()
+
+    // Get all running containers
+    containers, _ := sdk.ListRunningContainers()
+    
+    // Extract container IDs
+    var containerIDs []string
+    for _, c := range containers {
+        containerIDs = append(containerIDs, c.ID)
+    }
+    
+    // Export logs for LLM analysis
+    markdown, err := sdk.ExportLogsAsMarkdown(containerIDs, LogOptions{
+        Tail: 100,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Send to your LLM service
+    fmt.Println("Ready for LLM analysis:", len(markdown), "characters")
+}
+```
+
+### LLM Integration Examples
+
+```bash
+# Export logs and pipe to LLM analysis tool
+colog sdk export --format markdown --tail 100 | your-llm-tool
+
+# Export as JSON for structured analysis
+colog sdk export --format json --output logs.json
+
+# Monitor and alert on high error counts
+colog sdk export --format json | jq '.summary.error_count'
+```
+
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
@@ -157,9 +238,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ### Ideas for Contributions
 - Container filtering options
 - Search functionality
-- Export logs to file
 - Custom color themes
 - Keyboard navigation improvements
+- Advanced SDK features
+- Additional export formats
+- LLM integration examples
 
 ## 🙏 Acknowledgments
 
