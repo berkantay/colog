@@ -63,7 +63,7 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 		ShowStderr: true,
 		Follow:     true,
 		Timestamps: true,
-		Since:      "0",
+		Tail:       "50", // Show last 50 lines of history
 	}
 
 	logs, err := ds.client.ContainerLogs(ctx, containerID, options)
@@ -114,8 +114,14 @@ func parseLogEntry(containerID, line string) LogEntry {
 		return LogEntry{}
 	}
 
-	if len(line) > 8 {
-		line = line[8:]
+	// Docker logs may have an 8-byte header (stream type + length)
+	// Check if this looks like a Docker log header by examining the first byte
+	if len(line) >= 8 {
+		firstByte := line[0]
+		// Docker log headers start with 0, 1, or 2 (stdin, stdout, stderr)
+		if firstByte <= 2 {
+			line = line[8:]
+		}
 	}
 	
 	parts := strings.SplitN(line, " ", 2)
