@@ -19,19 +19,19 @@ A sleek, minimal terminal UI for monitoring live Docker container logs in a beau
 
 ### Option 1: Install with Go
 ```bash
-go install github.com/your-username/colog@latest
+go install github.com/berkantay/colog@latest
 ```
 
 ### Option 2: Build from Source
 ```bash
-git clone https://github.com/your-username/colog.git
+git clone https://github.com/berkantay/colog.git
 cd colog
 go build -o colog
 sudo mv colog /usr/local/bin/
 ```
 
 ### Option 3: Download Binary
-Download the latest release from [GitHub Releases](https://github.com/your-username/colog/releases)
+Download the latest release from [GitHub Releases](https://github.com/berkantay/colog/releases)
 
 ## 📋 Requirements
 
@@ -131,7 +131,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ### Development Setup
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/colog.git`
+2. Clone your fork: `git clone https://github.com/berkantay/colog.git`
 3. Create a feature branch: `git checkout -b feature-name`
 4. Make your changes and test thoroughly
 5. Submit a pull request
