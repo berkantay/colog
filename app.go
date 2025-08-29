@@ -32,6 +32,14 @@ type App struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	recentLogs    map[string][]colog.LogEntry
+	
+	// Vim navigation state
+	selectedContainer int  // currently focused container
+	isFullscreen      bool // whether a container is in fullscreen mode
+	
+	// Notification overlay
+	notification  *tview.TextView
+	overlayGrid   *tview.Grid
 }
 
 func NewApp() *App {
@@ -48,6 +56,9 @@ func NewApp() *App {
 		ctx:        ctx,
 		cancel:     cancel,
 		recentLogs: make(map[string][]colog.LogEntry),
+		selectedContainer: 0,
+		notification: tview.NewTextView(),
+		overlayGrid: tview.NewGrid(),
 	}
 }
 
@@ -90,10 +101,44 @@ func (a *App) Run() error {
 }
 
 func (a *App) setupUI() error {
-	a.grid.SetBorders(true).
-		SetBordersColor(tcell.ColorGray)
+	a.grid.SetBorders(false)
+
+	a.setupNotificationOverlay()
 
 	return nil
+}
+
+func (a *App) setupNotificationOverlay() {
+	a.notification.
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true).
+		SetBorder(true).
+		SetBorderColor(tcell.NewRGBColor(255, 248, 235)).
+		SetBackgroundColor(tcell.ColorBlack)
+
+	a.overlayGrid.
+		SetBorders(false).
+		SetRows(0, 5, 0).
+		SetColumns(0, 50, 0).
+		AddItem(tview.NewBox(), 0, 0, 1, 3, 0, 0, false).
+		AddItem(tview.NewBox(), 1, 0, 1, 1, 0, 0, false).
+		AddItem(a.notification, 1, 1, 1, 1, 0, 0, false).
+		AddItem(tview.NewBox(), 1, 2, 1, 1, 0, 0, false).
+		AddItem(tview.NewBox(), 2, 0, 1, 3, 0, 0, false)
+}
+
+func (a *App) showNotification(message string, duration time.Duration) {
+	a.app.QueueUpdateDraw(func() {
+		a.notification.SetText(message)
+		a.app.SetRoot(a.overlayGrid, true)
+	})
+	
+	go func() {
+		time.Sleep(duration)
+		a.app.QueueUpdateDraw(func() {
+			a.app.SetRoot(a.mainGrid, true)
+		})
+	}()
 }
 
 func (a *App) loadContainers() error {
@@ -146,6 +191,11 @@ func (a *App) setupGrid() {
 		a.grid.AddItem(logView, row, col, 1, 1, 0, 0, i == 0)
 	}
 	a.mu.RUnlock()
+	
+	// Set initial focus
+	if len(a.containers) > 0 {
+		a.focusContainer(0)
+	}
 }
 
 func (a *App) setupHelpBar() {
@@ -154,9 +204,9 @@ func (a *App) setupHelpBar() {
 		SetScrollable(false).
 		SetBorder(true).
 		SetBorderColor(tcell.ColorGray).
-		SetTitle(" Shortcuts ")
+		SetTitle(" Vim Shortcuts ")
 
-	helpText := "[#FF8C00]q[white]/[#FF8C00]Ctrl+C[white]: Quit  [#FF8C00]g[white]: Export logs  [#FF8C00]Tab[white]: Navigate  [#FF8C00]↑↓←→[white]: Scroll"
+	helpText := "[#FF8C00]hjkl[white]: Navigate containers  [#FF8C00]Space[white]: Toggle fullscreen  [#FF8C00]y[white]: Export logs for LLM  [#FF8C00]q[white]: Quit  [#FF8C00]Ctrl+C[white]: Quit"
 	a.helpBar.SetText(helpText)
 }
 
@@ -269,14 +319,163 @@ func (a *App) setupKeyBindings() {
 				a.cancel()
 				a.app.Stop()
 				return nil
-			case 'g', 'G':
+			case 'h':
+				a.navigateLeft()
+				return nil
+			case 'j':
+				a.navigateDown()
+				return nil
+			case 'k':
+				a.navigateUp()
+				return nil
+			case 'l':
+				a.navigateRight()
+				return nil
+			case 'y':
 				a.exportLogsForLLM()
+				return nil
+			case ' ':
+				a.toggleFullscreen()
 				return nil
 			}
 		}
 		return event
 	})
 }
+
+func (a *App) navigateLeft() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	cols := int(math.Ceil(math.Sqrt(float64(len(a.containers)))))
+	currentCol := a.selectedContainer % cols
+	if currentCol > 0 {
+		a.selectedContainer--
+		a.focusContainer(a.selectedContainer)
+	}
+}
+
+func (a *App) navigateRight() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	cols := int(math.Ceil(math.Sqrt(float64(len(a.containers)))))
+	currentCol := a.selectedContainer % cols
+	if currentCol < cols-1 && a.selectedContainer < len(a.containers)-1 {
+		a.selectedContainer++
+		a.focusContainer(a.selectedContainer)
+	}
+}
+
+func (a *App) navigateUp() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	cols := int(math.Ceil(math.Sqrt(float64(len(a.containers)))))
+	if a.selectedContainer >= cols {
+		a.selectedContainer -= cols
+		a.focusContainer(a.selectedContainer)
+	}
+}
+
+func (a *App) navigateDown() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	cols := int(math.Ceil(math.Sqrt(float64(len(a.containers)))))
+	if a.selectedContainer < len(a.containers)-cols {
+		a.selectedContainer += cols
+		a.focusContainer(a.selectedContainer)
+	}
+}
+
+func (a *App) focusNextContainer() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	a.selectedContainer = (a.selectedContainer + 1) % len(a.containers)
+	a.focusContainer(a.selectedContainer)
+}
+
+func (a *App) scrollUp() {
+	if a.selectedContainer >= 0 && a.selectedContainer < len(a.containers) {
+		containerID := a.containers[a.selectedContainer].ID
+		if logView, exists := a.logViews[containerID]; exists {
+			row, col := logView.GetScrollOffset()
+			if row > 0 {
+				logView.ScrollTo(row-1, col)
+			}
+		}
+	}
+}
+
+func (a *App) scrollDown() {
+	if a.selectedContainer >= 0 && a.selectedContainer < len(a.containers) {
+		containerID := a.containers[a.selectedContainer].ID
+		if logView, exists := a.logViews[containerID]; exists {
+			row, col := logView.GetScrollOffset()
+			logView.ScrollTo(row+1, col)
+		}
+	}
+}
+
+func (a *App) focusContainer(index int) {
+	if index < 0 || index >= len(a.containers) {
+		return
+	}
+	
+	containerID := a.containers[index].ID
+	if logView, exists := a.logViews[containerID]; exists {
+		a.app.SetFocus(logView)
+		
+		// Update border color to indicate focus
+		for i, container := range a.containers {
+			if view, ok := a.logViews[container.ID]; ok {
+				if i == index {
+					view.SetBorderColor(tcell.NewRGBColor(255, 140, 0)) // Bright orange for focus
+				} else {
+					view.SetBorderColor(a.colors[i%len(a.colors)])
+				}
+			}
+		}
+	}
+}
+
+func (a *App) toggleFullscreen() {
+	if len(a.containers) == 0 {
+		return
+	}
+	
+	a.isFullscreen = !a.isFullscreen
+	
+	if a.isFullscreen {
+		// Enter fullscreen mode - show only the selected container
+		a.mainGrid.Clear()
+		containerID := a.containers[a.selectedContainer].ID
+		if logView, exists := a.logViews[containerID]; exists {
+			a.mainGrid.SetRows(0, 3).
+				SetColumns(0).
+				AddItem(logView, 0, 0, 1, 1, 0, 0, true).
+				AddItem(a.helpBar, 1, 0, 1, 1, 0, 0, false)
+		}
+	} else {
+		// Exit fullscreen mode - restore grid layout
+		a.mainGrid.Clear()
+		a.mainGrid.SetRows(0, 3).
+			SetColumns(0).
+			AddItem(a.grid, 0, 0, 1, 1, 0, 0, true).
+			AddItem(a.helpBar, 1, 0, 1, 1, 0, 0, false)
+		
+		// Restore focus to the selected container
+		a.focusContainer(a.selectedContainer)
+	}
+}
+
 
 func (a *App) exportLogsForLLM() {
 	a.mu.RLock()
@@ -335,38 +534,28 @@ func (a *App) exportLogsForLLM() {
 			cmd.Run()
 		}
 		
-		// Show notification in app
-		go func() {
-			a.app.QueueUpdateDraw(func() {
-				// Find the first container's log view to show the message
-				for _, container := range containers {
-					if logView, exists := a.logViews[container.ID]; exists {
-						fmt.Fprintf(logView, "[#FF8C00]📋 Logs exported to %s and clipboard[white]\n", filename)
-						logView.ScrollToEnd()
-						break
-					}
-				}
-			})
-		}()
+		// Show centered notification
+		a.showNotification("[#00FF00]📋 Copied to clipboard[white]", 2*time.Second)
 	}
 }
 
 func getContainerColors() []tcell.Color {
+	orangishWhite := tcell.NewRGBColor(255, 248, 235) // Single orangish white color
 	return []tcell.Color{
-		tcell.NewRGBColor(255, 140, 0),   // Claude Orange
-		tcell.NewRGBColor(255, 165, 50),  // Light Claude Orange
-		tcell.NewRGBColor(200, 110, 0),   // Dark Claude Orange
-		tcell.ColorWhite,
-		tcell.ColorSilver,
-		tcell.ColorGray,
-		tcell.NewRGBColor(169, 169, 169), // DarkGray
-		tcell.NewRGBColor(105, 105, 105), // DimGray
-		tcell.NewRGBColor(64, 64, 64),    // Dark charcoal
-		tcell.NewRGBColor(128, 128, 128), // Medium gray
-		tcell.NewRGBColor(192, 192, 192), // Light gray
-		tcell.NewRGBColor(245, 245, 245), // WhiteSmoke
-		tcell.NewRGBColor(220, 220, 220), // Gainsboro
-		tcell.NewRGBColor(211, 211, 211), // LightGray
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
 	}
 }
 

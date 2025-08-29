@@ -10,14 +10,18 @@ A powerful Docker container log viewer with both interactive TUI and programmati
 
 ### 🖥️ Interactive TUI Mode
 - **Live Log Streaming**: Real-time logs from all running Docker containers
+- **Smart Docker Connection**: Automatic detection and selection of Docker endpoints (OrbStack, Docker Desktop, etc.)
 - **Grid Layout**: Beautiful, organized grid view with automatic container arrangement
+- **Vim-style Navigation**: Navigate containers with `hjkl` keys, fullscreen toggle with `Space`
 - **Color-Coded Containers**: Each container gets a unique color for easy identification
+- **Log Export**: Export logs for LLM analysis with `y` key
 - **Minimal & Clean**: Focus on logs with a distraction-free interface
-- **Keyboard Controls**: Simple and intuitive navigation
 - **No Configuration**: Works out of the box with your Docker setup
 
 ### 🔧 SDK Mode
 - **Programmatic Access**: Extract container logs and information via Go SDK
+- **Smart Docker Connection**: Same intelligent endpoint detection for programmatic use
+- **Interactive & Non-Interactive Modes**: Choose automatic or manual Docker endpoint selection
 - **Batch Operations**: Process multiple containers simultaneously
 - **Smart Filtering**: Filter containers by name, image, status, labels, and more
 - **LLM Integration**: Export logs in JSON/Markdown formats optimized for AI analysis
@@ -44,9 +48,9 @@ Download the latest release from [GitHub Releases](https://github.com/berkantay/
 
 ## 📋 Requirements
 
-- Docker installed and running
-- Docker daemon accessible (usually via `/var/run/docker.sock`)
+- Docker installed and running (Docker Desktop, OrbStack, or standard Docker daemon)
 - At least one running Docker container
+- **No manual configuration needed** - Colog automatically detects and connects to available Docker endpoints
 
 ## 🎮 Usage
 
@@ -91,23 +95,26 @@ colog sdk --help
 
 | Key | Action | Description |
 |-----|--------|-------------|
+| `h,j,k,l` | Vim navigation | Navigate between containers using vim-style keys |
+| `Space` | Toggle fullscreen | Fullscreen the selected container or return to grid view |
+| `y` | Export logs | Export recent logs to clipboard in markdown format |
 | `q` | Quit application | Cleanly exit Colog and return to terminal |
-| `g` | Export logs | Export last 50 log lines from each container for LLM analysis |
-| `Tab` | Navigate containers | Switch focus between different container log panels |
 | `Ctrl+C` | Force quit | Immediately terminate the application |
 
 ### Navigation Tips
-- **Container Focus**: Use `Tab` to cycle through containers and highlight the active panel
-- **Log Export**: Press `g` to quickly export recent logs for analysis or sharing
+- **Container Focus**: Use vim-style `hjkl` keys to navigate between containers
+- **Fullscreen Mode**: Press `Space` to focus on a single container, press again to return to grid
+- **Log Export**: Press `y` to copy recent logs to clipboard for LLM analysis
 - **Clean Exit**: Always use `q` for a proper shutdown that ensures all resources are cleaned up
 
 ## 🏗️ How It Works
 
-1. **Container Discovery**: Connects to Docker daemon and lists all running containers
-2. **Grid Layout**: Automatically arranges containers in an optimal grid layout
-3. **Live Streaming**: Opens log streams for each container using Docker API
-4. **Real-time Updates**: Continuously displays new log entries with timestamps
-5. **Color Coding**: Assigns unique colors to container borders and titles
+1. **Smart Connection**: Automatically detects and connects to available Docker endpoints (OrbStack, Docker Desktop, standard Docker)
+2. **Container Discovery**: Lists all running containers from the selected Docker endpoint
+3. **Grid Layout**: Automatically arranges containers in an optimal grid layout
+4. **Live Streaming**: Opens log streams for each container using Docker API
+5. **Real-time Updates**: Continuously displays new log entries with timestamps
+6. **Interactive Navigation**: Vim-style keyboard navigation with fullscreen support
 
 ## 🎨 Features in Detail
 
@@ -151,9 +158,12 @@ go build -o colog
 - Ensure you have running containers: `docker run -d nginx`
 
 ### "Failed to connect to Docker"
-- Check Docker daemon is running: `systemctl status docker`
-- Verify Docker socket permissions: `ls -la /var/run/docker.sock`
-- On macOS, ensure Docker Desktop is running
+- **No worries!** Colog automatically detects and tries multiple Docker endpoints
+- Ensure at least one Docker system is running:
+  - **Docker Desktop**: Start Docker Desktop application
+  - **OrbStack**: Start OrbStack application
+  - **Standard Docker**: `systemctl status docker` (Linux)
+- If multiple Docker systems are available, Colog will show a selection menu
 
 ### Permission Issues
 ```bash
@@ -179,31 +189,32 @@ import (
 
 func main() {
     ctx := context.Background()
-    sdk, err := NewColog(ctx)
+    
+    // Option 1: Automatic endpoint selection (recommended)
+    dockerService, err := colog.NewDockerService()
     if err != nil {
         log.Fatal(err)
     }
-    defer sdk.Close()
-
+    defer dockerService.Close()
+    
+    // Option 2: Interactive endpoint selection
+    // dockerService, err := colog.NewDockerServiceInteractive()
+    
     // Get all running containers
-    containers, _ := sdk.ListRunningContainers()
-    
-    // Extract container IDs
-    var containerIDs []string
-    for _, c := range containers {
-        containerIDs = append(containerIDs, c.ID)
-    }
-    
-    // Export logs for LLM analysis
-    markdown, err := sdk.ExportLogsAsMarkdown(containerIDs, LogOptions{
-        Tail: 100,
-    })
+    containers, err := dockerService.ListRunningContainers(ctx)
     if err != nil {
         log.Fatal(err)
     }
     
-    // Send to your LLM service
-    fmt.Println("Ready for LLM analysis:", len(markdown), "characters")
+    fmt.Printf("Found %d running containers\n", len(containers))
+    
+    // Stream logs from first container
+    if len(containers) > 0 {
+        logCh := make(chan colog.LogEntry, 100)
+        go dockerService.StreamLogs(ctx, containers[0].ID, logCh)
+        
+        // Process logs...
+    }
 }
 ```
 

@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Create release directory
+      run: mkdir -p releases
+
+    - name: Build release binaries
+      run: |
+        # Linux
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o releases/colog-linux-amd64 .
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o releases/colog-linux-arm64 .
+        GOOS=linux GOARCH=386 go build -ldflags="-s -w" -o releases/colog-linux-386 .
+        
+        # macOS
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o releases/colog-darwin-amd64 .
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o releases/colog-darwin-arm64 .
+        
+        # Windows
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o releases/colog-windows-amd64.exe .
+        GOOS=windows GOARCH=386 go build -ldflags="-s -w" -o releases/colog-windows-386.exe .
+
+    - name: Generate checksums
+      run: |
+        cd releases
+        sha256sum * > checksums.txt
+
+    - name: Extract release notes
+      id: extract-release-notes
+      run: |
+        # Extract the latest version from CHANGELOG.md
+        VERSION=${GITHUB_REF#refs/tags/v}
+        awk -v version="[$VERSION]" '
+        /^## \[.*\]/ { 
+          if (found) exit
+          if ($0 ~ version) { found=1; next }
+        }
+        found && /^## \[.*\]/ { exit }
+        found { print }
+        ' CHANGELOG.md > release-notes.md
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release-notes.md
+        files: |
+          releases/*
+        draft: false
+        prerelease: false
