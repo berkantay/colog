@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -276,57 +275,40 @@ func (ds *DockerService) ListRunningContainers(ctx context.Context) ([]Container
 }
 
 func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, logCh chan<- LogEntry) error {
-	options := container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     true,
-		Timestamps: true,
-		Tail:       "100", // Show last 100 lines of historical logs
-	}
-
-	logs, err := ds.client.ContainerLogs(ctx, containerID, options)
+	// Use docker command directly - we know this works!
+	cmd := exec.Command("docker", "logs", "-f", "--timestamps", "--tail", "100", containerID)
+	
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		return err
+	}
+	
+	if err := cmd.Start(); err != nil {
 		return err
 	}
 
 	go func() {
 		defer close(logCh)
-		defer logs.Close()
+		defer stdout.Close()
+		defer cmd.Process.Kill()
 		
-		// Use io.Reader directly instead of bufio.Reader to handle binary data better
-		buf := make([]byte, 4096)
+		scanner := bufio.NewScanner(stdout)
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 1024*1024)
 		
-		for {
+		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				n, err := logs.Read(buf)
-				if err != nil {
-					if err == io.EOF {
-						time.Sleep(100 * time.Millisecond)
-						continue
-					}
-					return
-				}
-				
-				if n > 0 {
-					// Process the raw data
-					data := string(buf[:n])
-					lines := strings.Split(data, "\n")
-					
-					for _, line := range lines {
-						if len(line) == 0 {
-							continue
-						}
-						
-						entry := parseLogEntry(containerID, line)
-						if entry.Message != "" {
-							select {
-							case logCh <- entry:
-							case <-ctx.Done():
-								return
-							}
+				line := scanner.Text()
+				if line != "" {
+					entry := parseLogEntry(containerID, line)
+					if entry.Message != "" {
+						select {
+						case logCh <- entry:
+						case <-ctx.Done():
+							return
 						}
 					}
 				}

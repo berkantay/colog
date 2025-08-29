@@ -1,0 +1,15 @@
+FROM alpine:latest
+
+# Install basic utilities
+RUN apk add --no-cache coreutils
+
+# Create a simple script that prints unix timestamps every second
+RUN echo '#!/bin/sh' > /timestamp.sh && \
+    echo 'while true; do' >> /timestamp.sh && \
+    echo '  echo "$(date +%s) - Unix timestamp: $(date)"' >> /timestamp.sh && \
+    echo '  sleep 1' >> /timestamp.sh && \
+    echo 'done' >> /timestamp.sh && \
+    chmod +x /timestamp.sh
+
+# Run the timestamp script
+CMD ["/timestamp.sh"]

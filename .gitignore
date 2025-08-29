@@ -11,6 +11,9 @@ mcp-server
 # Release binaries
 releases/
 
+# Distribution files
+dist/
+
 # Test binary, built with `go test -c`
 *.test
 
