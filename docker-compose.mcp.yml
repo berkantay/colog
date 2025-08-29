@@ -1,0 +1,109 @@
+# Docker Compose for Colog MCP Sidecar Deployment
+version: '3.8'
+
+services:
+  # Main application containers (example)
+  app:
+    image: nginx:alpine
+    container_name: example-app
+    ports:
+      - "80:80"
+    labels:
+      - "colog.monitor=true"
+      - "colog.env=production"
+
+  # Colog MCP Server Sidecar
+  colog-mcp:
+    build:
+      context: .
+      dockerfile: mcp/Dockerfile
+    container_name: colog-mcp-server
+    ports:
+      - "8080:8080"
+    environment:
+      # Server Configuration
+      - MCP_PORT=8080
+      - MCP_HOST=0.0.0.0
+      
+      # Authentication (optional)
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      - MCP_ALLOWED_ORIGINS=*
+      
+      # Logging
+      - LOG_LEVEL=info
+      - GIN_MODE=release
+    
+    volumes:
+      # Mount Docker socket for container access
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+      # Optional: Mount logs directory if containers log to files
+      - /var/log:/host/var/log:ro
+    
+    networks:
+      - colog-network
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    
+    # Labels for discovery
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.colog-mcp.rule=Host(`colog-mcp.localhost`)"
+      - "traefik.http.services.colog-mcp.loadbalancer.server.port=8080"
+      - "com.docker.compose.service=colog-mcp"
+
+  # Optional: Reverse proxy for remote access
+  traefik:
+    image: traefik:v3.0
+    container_name: colog-traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=your-email@example.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - colog-network
+    profiles:
+      - "proxy"
+
+networks:
+  colog-network:
+    driver: bridge
+    name: colog-network
+
+# Named volumes for persistent data
+volumes:
+  letsencrypt:
+    driver: local

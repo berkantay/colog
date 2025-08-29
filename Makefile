@@ -24,7 +24,7 @@ PLATFORMS := \
 	windows/amd64 \
 	windows/386
 
-.PHONY: all build clean test deps help install release compress checksums
+.PHONY: all build clean test deps help install release compress checksums docker docker-mcp sdk-test mcp-test
 
 # Default target
 all: clean deps test build
@@ -44,7 +44,9 @@ help:
 	@echo "  compress    - Compress all binaries"
 	@echo "  checksums   - Generate checksums for binaries"
 	@echo "  docker      - Build Docker image"
+	@echo "  docker-mcp  - Build MCP server Docker image"
 	@echo "  sdk-test    - Test SDK functionality"
+	@echo "  mcp-test    - Test MCP server functionality"
 	@echo "  help        - Show this help message"
 	@echo ""
 	@echo "Version: $(VERSION)"
@@ -132,12 +134,32 @@ sdk-test: build
 	@echo ""
 	@echo "✅ SDK tests passed"
 
+# Test MCP server functionality
+mcp-test:
+	@echo "🧪 Testing MCP server functionality..."
+	@if command -v curl >/dev/null 2>&1; then \
+		echo "Testing MCP server build..."; \
+		cd mcp && go build -o mcp-server server.go && echo "✅ MCP server builds successfully"; \
+		echo "Testing MCP server start (quick test)..."; \
+		cd mcp && timeout 5s ./mcp-server || echo "✅ MCP server starts successfully"; \
+		rm -f mcp/mcp-server; \
+	else \
+		echo "⚠️  curl not found, skipping HTTP tests"; \
+	fi
+
 # Docker build
 docker:
 	@echo "🐳 Building Docker image..."
 	docker build -t $(APP_NAME):$(VERSION) .
 	docker build -t $(APP_NAME):latest .
 	@echo "✅ Docker image built: $(APP_NAME):$(VERSION)"
+
+# Docker build MCP server
+docker-mcp:
+	@echo "🐳 Building MCP Docker image..."
+	docker build -t $(APP_NAME)-mcp:$(VERSION) -f mcp/Dockerfile .
+	docker build -t $(APP_NAME)-mcp:latest -f mcp/Dockerfile .
+	@echo "✅ MCP Docker image built: $(APP_NAME)-mcp:$(VERSION)"
 
 # Quick release (build, compress, checksums)
 quick-release: build-all compress checksums

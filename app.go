@@ -14,6 +14,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	
+	"github.com/berkantay/colog/pkg/colog"
 )
 
 type App struct {
@@ -21,15 +23,15 @@ type App struct {
 	grid          *tview.Grid
 	mainGrid      *tview.Grid
 	helpBar       *tview.TextView
-	dockerService *DockerService
+	dockerService *colog.DockerService
 	logViews      map[string]*tview.TextView
-	containers    []Container
+	containers    []colog.Container
 	colors        []tcell.Color
 	colorIndex    int
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
-	recentLogs    map[string][]LogEntry
+	recentLogs    map[string][]colog.LogEntry
 }
 
 func NewApp() *App {
@@ -45,13 +47,13 @@ func NewApp() *App {
 		colorIndex: 0,
 		ctx:        ctx,
 		cancel:     cancel,
-		recentLogs: make(map[string][]LogEntry),
+		recentLogs: make(map[string][]colog.LogEntry),
 	}
 }
 
 func (a *App) Run() error {
 	var err error
-	a.dockerService, err = NewDockerService()
+	a.dockerService, err = colog.NewDockerService()
 	if err != nil {
 		return fmt.Errorf("failed to connect to Docker: %w", err)
 	}
@@ -166,7 +168,7 @@ func (a *App) setupMainLayout() {
 		AddItem(a.helpBar, 1, 0, 1, 1, 0, 0, false)  // Help bar takes row 1
 }
 
-func (a *App) createLogView(container Container) *tview.TextView {
+func (a *App) createLogView(container colog.Container) *tview.TextView {
 	color := a.colors[a.colorIndex%len(a.colors)]
 	a.colorIndex++
 
@@ -196,7 +198,7 @@ func (a *App) createLogView(container Container) *tview.TextView {
 
 func (a *App) startLogStreaming() {
 	a.mu.RLock()
-	containers := make([]Container, len(a.containers))
+	containers := make([]colog.Container, len(a.containers))
 	copy(containers, a.containers)
 	a.mu.RUnlock()
 
@@ -205,8 +207,8 @@ func (a *App) startLogStreaming() {
 	}
 }
 
-func (a *App) streamContainerLogs(container Container) {
-	logCh := make(chan LogEntry, 100)
+func (a *App) streamContainerLogs(container colog.Container) {
+	logCh := make(chan colog.LogEntry, 100)
 	
 	err := a.dockerService.StreamLogs(a.ctx, container.ID, logCh)
 	if err != nil {
@@ -226,7 +228,7 @@ func (a *App) streamContainerLogs(container Container) {
 			// Store log entry in recent logs (keep last 50)
 			a.mu.Lock()
 			if a.recentLogs[container.ID] == nil {
-				a.recentLogs[container.ID] = make([]LogEntry, 0, 50)
+				a.recentLogs[container.ID] = make([]colog.LogEntry, 0, 50)
 			}
 			a.recentLogs[container.ID] = append(a.recentLogs[container.ID], entry)
 			if len(a.recentLogs[container.ID]) > 50 {
@@ -278,13 +280,13 @@ func (a *App) setupKeyBindings() {
 
 func (a *App) exportLogsForLLM() {
 	a.mu.RLock()
-	containers := make([]Container, len(a.containers))
+	containers := make([]colog.Container, len(a.containers))
 	copy(containers, a.containers)
 	
 	// Create a copy of recent logs to avoid holding the lock too long
-	allLogs := make(map[string][]LogEntry)
+	allLogs := make(map[string][]colog.LogEntry)
 	for containerID, logs := range a.recentLogs {
-		logsCopy := make([]LogEntry, len(logs))
+		logsCopy := make([]colog.LogEntry, len(logs))
 		copy(logsCopy, logs)
 		allLogs[containerID] = logsCopy
 	}
@@ -436,10 +438,10 @@ func (a *App) runSimpleMode() error {
 	return nil
 }
 
-func (a *App) streamContainerLogsSimple(container Container) {
+func (a *App) streamContainerLogsSimple(container colog.Container) {
 	fmt.Printf("\n=== %s (%s) ===\n", container.Name, container.ID)
 	
-	logCh := make(chan LogEntry, 100)
+	logCh := make(chan colog.LogEntry, 100)
 	
 	err := a.dockerService.StreamLogs(a.ctx, container.ID, logCh)
 	if err != nil {

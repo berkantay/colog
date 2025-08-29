@@ -1,10 +1,15 @@
 # Binaries
 colog
+colog-*
+mcp-server
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+
+# Release binaries
+releases/
 
 # Test binary, built with `go test -c`
 *.test

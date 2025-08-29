@@ -1,0 +1,268 @@
+# Kubernetes deployment for Colog MCP Server
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: colog-mcp
+  labels:
+    name: colog-mcp
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: colog-mcp
+  namespace: colog-mcp
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: colog-mcp-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: colog-mcp-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: colog-mcp-reader
+subjects:
+- kind: ServiceAccount
+  name: colog-mcp
+  namespace: colog-mcp
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: colog-mcp-config
+  namespace: colog-mcp
+data:
+  MCP_PORT: "8080"
+  MCP_HOST: "0.0.0.0"
+  LOG_LEVEL: "info"
+  MCP_ALLOWED_ORIGINS: "*"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: colog-mcp-secrets
+  namespace: colog-mcp
+type: Opaque
+data:
+  # Base64 encoded API key (optional)
+  # echo -n "your-api-key" | base64
+  MCP_API_KEY: ""
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: colog-mcp
+  namespace: colog-mcp
+  labels:
+    app: colog-mcp
+    version: v1.2.0
+spec:
+  selector:
+    matchLabels:
+      app: colog-mcp
+  template:
+    metadata:
+      labels:
+        app: colog-mcp
+        version: v1.2.0
+    spec:
+      serviceAccountName: colog-mcp
+      containers:
+      - name: colog-mcp
+        image: berkantay/colog-mcp:v1.2.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: colog-mcp-config
+        - secretRef:
+            name: colog-mcp-secrets
+        volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+          readOnly: true
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: colog-mcp-service
+  namespace: colog-mcp
+  labels:
+    app: colog-mcp
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: colog-mcp
+
+---
+# Optional: Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: colog-mcp-ingress
+  namespace: colog-mcp
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-API-Key,X-Session-ID"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    # Enable SSL if you have cert-manager
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  # Optional: TLS configuration
+  # tls:
+  # - hosts:
+  #   - colog-mcp.yourdomain.com
+  #   secretName: colog-mcp-tls
+  rules:
+  - host: colog-mcp.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: colog-mcp-service
+            port:
+              number: 8080
+
+---
+# Optional: HorizontalPodAutoscaler for scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: colog-mcp-hpa
+  namespace: colog-mcp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: colog-mcp
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Optional: NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: colog-mcp-netpol
+  namespace: colog-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app: colog-mcp
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: default
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - {}  # Allow all outbound traffic

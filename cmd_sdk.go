@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/berkantay/colog/pkg/colog"
 )
 
 // Command-line interface for the SDK
@@ -61,7 +63,7 @@ For detailed usage of each command, use:
 
 func runListCommand(args []string) error {
 	ctx := context.Background()
-	sdk, err := NewColog(ctx)
+	sdk, err := colog.NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -88,7 +90,7 @@ EXAMPLES:
 		}
 	}
 
-	var containers []ContainerInfo
+	var containers []colog.ContainerInfo
 	if showAll {
 		containers, err = sdk.ListAllContainers()
 	} else {
@@ -139,7 +141,7 @@ func runLogsCommand(args []string) error {
 	containerID := args[0]
 	
 	// Parse options
-	options := LogOptions{
+	options := colog.LogOptions{
 		Tail:       50,
 		Follow:     false,
 		Timestamps: true,
@@ -195,7 +197,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewColog(ctx)
+	sdk, err := colog.NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -234,7 +236,7 @@ EXAMPLES:
 func runExportCommand(args []string) error {
 	format := "markdown"
 	outputFile := ""
-	options := LogOptions{
+	options := colog.LogOptions{
 		Tail:       100,
 		Follow:     false,
 		Timestamps: true,
@@ -288,7 +290,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewColog(ctx)
+	sdk, err := colog.NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
@@ -340,7 +342,7 @@ EXAMPLES:
 }
 
 func runFilterCommand(args []string) error {
-	filter := ContainerFilter{}
+	filter := colog.ContainerFilter{}
 	format := "table"
 
 	for i := 0; i < len(args); i++ {
@@ -393,7 +395,7 @@ EXAMPLES:
 	}
 
 	ctx := context.Background()
-	sdk, err := NewColog(ctx)
+	sdk, err := colog.NewColog(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
