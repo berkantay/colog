@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -13,8 +12,6 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	
-	"github.com/berkantay/colog/pkg/colog"
 )
 
 type App struct {
@@ -22,7 +19,7 @@ type App struct {
 	grid          *tview.Grid
 	mainGrid      *tview.Grid
 	helpBar       *tview.TextView
-	dockerService *colog.DockerService
+	dockerService *DockerService
 	contextManager *ContainerContextManager
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -53,7 +50,7 @@ func NewApp() *App {
 
 func (a *App) Run() error {
 	var err error
-	a.dockerService, err = colog.NewDockerService()
+	a.dockerService, err = NewDockerService()
 	if err != nil {
 		return fmt.Errorf("failed to connect to Docker: %w", err)
 	}
@@ -125,29 +122,19 @@ func (a *App) setupGrid() {
 		return
 	}
 
-	cols := int(math.Ceil(math.Sqrt(float64(containerCount))))
-	rows := int(math.Ceil(float64(containerCount) / float64(cols)))
-
 	a.grid.Clear()
 
-	rowSizes := make([]int, rows)
+	// Create row-based list layout - all containers in a single column
+	rowSizes := make([]int, containerCount)
 	for i := range rowSizes {
-		rowSizes[i] = 0
+		rowSizes[i] = 0 // Equal height for all rows
 	}
 
-	colSizes := make([]int, cols)
-	for i := range colSizes {
-		colSizes[i] = 0
-	}
-
-	a.grid.SetRows(rowSizes...).SetColumns(colSizes...)
+	a.grid.SetRows(rowSizes...).SetColumns(0) // Single column
 
 	contexts := a.contextManager.GetAllContexts()
 	for i, context := range contexts {
-		row := i / cols
-		col := i % cols
-		
-		a.grid.AddItem(context.LogView, row, col, 1, 1, 0, 0, i == 0)
+		a.grid.AddItem(context.LogView, i, 0, 1, 1, 0, 0, i == 0)
 	}
 	
 	// Set initial focus
@@ -221,6 +208,12 @@ func (a *App) setupKeyBindings() {
 			case ' ':
 				a.toggleFullscreen()
 				return nil
+			case 'r':
+				a.restartFocusedContainer()
+				return nil
+			case 'x':
+				a.killFocusedContainer()
+				return nil
 			}
 		}
 		return event
@@ -228,31 +221,11 @@ func (a *App) setupKeyBindings() {
 }
 
 func (a *App) navigateLeft() {
-	containerCount := a.contextManager.Count()
-	if containerCount == 0 {
-		return
-	}
-	
-	cols := int(math.Ceil(math.Sqrt(float64(containerCount))))
-	currentCol := a.selectedContainer % cols
-	if currentCol > 0 {
-		a.selectedContainer--
-		a.focusContainer(a.selectedContainer)
-	}
+	// In row list layout, left navigation is not applicable
 }
 
 func (a *App) navigateRight() {
-	containerCount := a.contextManager.Count()
-	if containerCount == 0 {
-		return
-	}
-	
-	cols := int(math.Ceil(math.Sqrt(float64(containerCount))))
-	currentCol := a.selectedContainer % cols
-	if currentCol < cols-1 && a.selectedContainer < containerCount-1 {
-		a.selectedContainer++
-		a.focusContainer(a.selectedContainer)
-	}
+	// In row list layout, right navigation is not applicable
 }
 
 func (a *App) navigateUp() {
@@ -261,9 +234,8 @@ func (a *App) navigateUp() {
 		return
 	}
 	
-	cols := int(math.Ceil(math.Sqrt(float64(containerCount))))
-	if a.selectedContainer >= cols {
-		a.selectedContainer -= cols
+	if a.selectedContainer > 0 {
+		a.selectedContainer--
 		a.focusContainer(a.selectedContainer)
 	}
 }
@@ -274,9 +246,8 @@ func (a *App) navigateDown() {
 		return
 	}
 	
-	cols := int(math.Ceil(math.Sqrt(float64(containerCount))))
-	if a.selectedContainer < containerCount-cols {
-		a.selectedContainer += cols
+	if a.selectedContainer < containerCount-1 {
+		a.selectedContainer++
 		a.focusContainer(a.selectedContainer)
 	}
 }
@@ -369,8 +340,8 @@ func (a *App) exportLogsForLLM() {
 		}
 		
 		// Collect logs from all contexts
-		allLogs := make(map[string][]colog.LogEntry)
-		var containers []colog.Container
+		allLogs := make(map[string][]LogEntry)
+		var containers []Container
 		
 		for _, context := range contexts {
 			logBuffer := context.GetLogBuffer()
@@ -398,7 +369,6 @@ func (a *App) exportLogsForLLM() {
 			output += fmt.Sprintf("## Container: %s\n", container.Name)
 			output += fmt.Sprintf("- Image: %s\n", container.Image)
 			output += fmt.Sprintf("- Status: %s\n", container.Status)
-			output += fmt.Sprintf("- Log entries: %d\n\n", len(logs))
 			
 			output += "```\n"
 			for _, log := range logs {
@@ -460,6 +430,124 @@ func getContainerColors() []tcell.Color {
 	}
 }
 
+func (a *App) restartFocusedContainer() {
+	if a.contextManager.Count() == 0 {
+		a.showHelpMessage("[red]No containers available[white]", 2*time.Second)
+		return
+	}
+
+	selectedContext := a.contextManager.GetContextByIndex(a.selectedContainer)
+	if selectedContext == nil {
+		a.showHelpMessage("[red]No container selected[white]", 2*time.Second)
+		return
+	}
+
+	containerName := selectedContext.Container.Name
+	containerID := selectedContext.Container.ID
+	
+	a.showHelpMessage(fmt.Sprintf("[yellow]Restarting %s...[white]", containerName), 1*time.Second)
+	
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		
+		if err := a.dockerService.RestartContainer(ctx, containerID); err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.showHelpMessage(fmt.Sprintf("[red]Failed to restart %s: %v[white]", containerName, err), 3*time.Second)
+			})
+		} else {
+			a.app.QueueUpdateDraw(func() {
+				a.showHelpMessage(fmt.Sprintf("[green]✓ Restarted %s[white]", containerName), 2*time.Second)
+				// Refresh containers after restart
+				a.refreshContainers()
+			})
+		}
+	}()
+}
+
+func (a *App) killFocusedContainer() {
+	if a.contextManager.Count() == 0 {
+		a.showHelpMessage("[red]No containers available[white]", 2*time.Second)
+		return
+	}
+
+	selectedContext := a.contextManager.GetContextByIndex(a.selectedContainer)
+	if selectedContext == nil {
+		a.showHelpMessage("[red]No container selected[white]", 2*time.Second)
+		return
+	}
+
+	containerName := selectedContext.Container.Name
+	containerID := selectedContext.Container.ID
+	
+	a.showHelpMessage(fmt.Sprintf("[red]Killing %s...[white]", containerName), 1*time.Second)
+	
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		if err := a.dockerService.KillContainer(ctx, containerID); err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.showHelpMessage(fmt.Sprintf("[red]Failed to kill %s: %v[white]", containerName, err), 3*time.Second)
+			})
+		} else {
+			a.app.QueueUpdateDraw(func() {
+				a.showHelpMessage(fmt.Sprintf("[red]✗ Killed %s[white]", containerName), 2*time.Second)
+				// Refresh containers after kill - this will remove dead containers
+				a.refreshContainers()
+			})
+		}
+	}()
+}
+
+// refreshContainers re-fetches the container list and updates the UI
+func (a *App) refreshContainers() {
+	go func() {
+		// Get fresh container list
+		containers, err := a.dockerService.ListRunningContainers(a.ctx)
+		if err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.showHelpMessage(fmt.Sprintf("[red]Failed to refresh containers: %v[white]", err), 3*time.Second)
+			})
+			return
+		}
+
+		a.app.QueueUpdateDraw(func() {
+			// Stop all existing contexts
+			a.contextManager.StopAll()
+			
+			// Clear the grid
+			a.grid.Clear()
+			
+			if len(containers) == 0 {
+				a.showHelpMessage("[yellow]No running containers found[white]", 3*time.Second)
+				return
+			}
+			
+			// Reinitialize contexts with fresh container list
+			if err := a.contextManager.InitializeContexts(containers, a.dockerService, a.app); err != nil {
+				a.showHelpMessage(fmt.Sprintf("[red]Failed to reinitialize contexts: %v[white]", err), 3*time.Second)
+				return
+			}
+			
+			// Adjust selected container index if needed
+			if a.selectedContainer >= len(containers) {
+				a.selectedContainer = len(containers) - 1
+			}
+			if a.selectedContainer < 0 {
+				a.selectedContainer = 0
+			}
+			
+			// Re-setup the grid layout
+			a.setupGrid()
+			
+			// Update focus
+			if len(containers) > 0 {
+				a.focusContainer(a.selectedContainer)
+			}
+		})
+	}()
+}
 
 func isTTY() bool {
 	// Check if stdout is a terminal

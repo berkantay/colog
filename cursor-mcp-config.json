@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "colog-docker": {
+      "command": "/Users/berkantay/Projects/berkant/colog/colog",
+      "args": ["-m", "stdio"],
+      "env": {
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/Users/berkantay"
+      }
+    }
+  }
+}

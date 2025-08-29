@@ -7,16 +7,14 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	
-	"github.com/berkantay/colog/pkg/colog"
 )
 
 // ContainerContext represents an isolated context for a single container
 type ContainerContext struct {
-	Container     colog.Container
+	Container     Container
 	LogView       *tview.TextView
-	LogBuffer     []colog.LogEntry
-	LogChannel    chan colog.LogEntry
+	LogBuffer     []LogEntry
+	LogChannel    chan LogEntry
 	Color         tcell.Color
 	IsSelected    bool
 	mu            sync.RWMutex
@@ -27,13 +25,13 @@ type ContainerContext struct {
 }
 
 // NewContainerContext creates a new container context
-func NewContainerContext(container colog.Container, color tcell.Color, app *tview.Application) *ContainerContext {
+func NewContainerContext(container Container, color tcell.Color, app *tview.Application) *ContainerContext {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	return &ContainerContext{
 		Container:  container,
-		LogBuffer:  make([]colog.LogEntry, 0, 50), // Keep last 50 entries
-		LogChannel: make(chan colog.LogEntry, 100),
+		LogBuffer:  make([]LogEntry, 0, 50), // Keep last 50 entries
+		LogChannel: make(chan LogEntry, 100),
 		Color:      color,
 		IsSelected: false,
 		ctx:        ctx,
@@ -43,7 +41,7 @@ func NewContainerContext(container colog.Container, color tcell.Color, app *tvie
 }
 
 // Initialize sets up the log view and starts log streaming
-func (cc *ContainerContext) Initialize(dockerService *colog.DockerService) error {
+func (cc *ContainerContext) Initialize(dockerService *DockerService) error {
 	cc.setupLogView()
 	return cc.startLogStreaming(dockerService)
 }
@@ -77,7 +75,7 @@ func (cc *ContainerContext) setupLogView() {
 }
 
 // startLogStreaming begins streaming logs for this container
-func (cc *ContainerContext) startLogStreaming(dockerService *colog.DockerService) error {
+func (cc *ContainerContext) startLogStreaming(dockerService *DockerService) error {
 	if cc.streamStarted {
 		return nil
 	}
@@ -147,11 +145,11 @@ func (cc *ContainerContext) SetSelected(selected bool) {
 }
 
 // GetLogBuffer returns a copy of the current log buffer
-func (cc *ContainerContext) GetLogBuffer() []colog.LogEntry {
+func (cc *ContainerContext) GetLogBuffer() []LogEntry {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
 	
-	buffer := make([]colog.LogEntry, len(cc.LogBuffer))
+	buffer := make([]LogEntry, len(cc.LogBuffer))
 	copy(buffer, cc.LogBuffer)
 	return buffer
 }
@@ -216,7 +214,7 @@ func NewContainerContextManager() *ContainerContextManager {
 }
 
 // InitializeContexts creates contexts for all containers
-func (ccm *ContainerContextManager) InitializeContexts(containers []colog.Container, dockerService *colog.DockerService, app *tview.Application) error {
+func (ccm *ContainerContextManager) InitializeContexts(containers []Container, dockerService *DockerService, app *tview.Application) error {
 	ccm.mu.Lock()
 	defer ccm.mu.Unlock()
 	
@@ -295,4 +293,9 @@ func (ccm *ContainerContextManager) Cleanup() {
 	}
 	ccm.contexts = make(map[string]*ContainerContext)
 	ccm.orderedIDs = make([]string, 0)
+}
+
+// StopAll stops all running contexts (alias for Cleanup for clarity)
+func (ccm *ContainerContextManager) StopAll() {
+	ccm.Cleanup()
 }

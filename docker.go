@@ -319,6 +319,77 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 	return nil
 }
 
+// RestartContainer restarts a running container
+func (ds *DockerService) RestartContainer(ctx context.Context, containerID string) error {
+	return ds.client.ContainerRestart(ctx, containerID, container.StopOptions{})
+}
+
+// KillContainer forcefully kills a running container
+func (ds *DockerService) KillContainer(ctx context.Context, containerID string) error {
+	return ds.client.ContainerKill(ctx, containerID, "SIGKILL")
+}
+
+// GetRecentLogs gets a specific number of recent log entries from a container using Docker SDK
+func (ds *DockerService) GetRecentLogs(ctx context.Context, containerID string, tail int) ([]LogEntry, error) {
+	// Use Docker SDK - this works regardless of PATH issues
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Tail:       fmt.Sprintf("%d", tail),
+	}
+	
+	out, err := ds.client.ContainerLogs(ctx, containerID, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for container %s: %w", containerID, err)
+	}
+	defer out.Close()
+	
+	var logs []LogEntry
+	
+	// Docker API returns logs with a special header format
+	// Read raw bytes and handle the multiplexed stream
+	buf := make([]byte, 8) // Header is 8 bytes
+	var logData []byte
+	
+	for {
+		// Read header
+		n, err := out.Read(buf)
+		if err != nil || n == 0 {
+			break // End of stream
+		}
+		
+		// Extract payload size from header (bytes 4-7, big-endian)
+		if n >= 8 {
+			payloadSize := int(buf[4])<<24 | int(buf[5])<<16 | int(buf[6])<<8 | int(buf[7])
+			
+			// Read payload
+			payload := make([]byte, payloadSize)
+			n, err := out.Read(payload)
+			if err != nil || n != payloadSize {
+				break
+			}
+			
+			logData = append(logData, payload...)
+		}
+	}
+	
+	// Parse the collected log data
+	lines := strings.Split(string(logData), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		
+		logEntry := parseLogEntry(containerID, line)
+		if !logEntry.Timestamp.IsZero() {
+			logs = append(logs, logEntry)
+		}
+	}
+	
+	return logs, nil
+}
+
 type LogEntry struct {
 	ContainerID string
 	Timestamp   time.Time

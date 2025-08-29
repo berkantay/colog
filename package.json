@@ -1,0 +1,49 @@
+{
+  "name": "colog-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Docker container logs with real-time streaming and LLM-friendly exports",
+  "main": "index.js",
+  "bin": {
+    "colog-mcp": "./bin/colog-mcp.js"
+  },
+  "scripts": {
+    "build": "node scripts/build-binaries.js",
+    "postinstall": "node scripts/install.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "docker",
+    "logs",
+    "container",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "ai"
+  ],
+  "author": "Berkant Ay",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/berkantay/colog.git"
+  },
+  "homepage": "https://github.com/berkantay/colog",
+  "files": [
+    "bin/",
+    "binaries/",
+    "scripts/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
