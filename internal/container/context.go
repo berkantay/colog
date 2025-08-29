@@ -1,4 +1,4 @@
-package main
+package container
 
 import (
 	"context"
@@ -7,14 +7,16 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	"github.com/berkantay/colog/internal/docker"
 )
 
 // ContainerContext represents an isolated context for a single container
 type ContainerContext struct {
-	Container     Container
+	Container     docker.Container
 	LogView       *tview.TextView
-	LogBuffer     []LogEntry
-	LogChannel    chan LogEntry
+	LogBuffer     []docker.LogEntry
+	LogChannel    chan docker.LogEntry
 	Color         tcell.Color
 	IsSelected    bool
 	mu            sync.RWMutex
@@ -25,13 +27,13 @@ type ContainerContext struct {
 }
 
 // NewContainerContext creates a new container context
-func NewContainerContext(container Container, color tcell.Color, app *tview.Application) *ContainerContext {
+func NewContainerContext(container docker.Container, color tcell.Color, app *tview.Application) *ContainerContext {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	return &ContainerContext{
 		Container:  container,
-		LogBuffer:  make([]LogEntry, 0, 50), // Keep last 50 entries
-		LogChannel: make(chan LogEntry, 100),
+		LogBuffer:  make([]docker.LogEntry, 0, 50), // Keep last 50 entries
+		LogChannel: make(chan docker.LogEntry, 100),
 		Color:      color,
 		IsSelected: false,
 		ctx:        ctx,
@@ -41,7 +43,7 @@ func NewContainerContext(container Container, color tcell.Color, app *tview.Appl
 }
 
 // Initialize sets up the log view and starts log streaming
-func (cc *ContainerContext) Initialize(dockerService *DockerService) error {
+func (cc *ContainerContext) Initialize(dockerService *docker.DockerService) error {
 	cc.setupLogView()
 	return cc.startLogStreaming(dockerService)
 }
@@ -75,7 +77,7 @@ func (cc *ContainerContext) setupLogView() {
 }
 
 // startLogStreaming begins streaming logs for this container
-func (cc *ContainerContext) startLogStreaming(dockerService *DockerService) error {
+func (cc *ContainerContext) startLogStreaming(dockerService *docker.DockerService) error {
 	if cc.streamStarted {
 		return nil
 	}
@@ -145,11 +147,11 @@ func (cc *ContainerContext) SetSelected(selected bool) {
 }
 
 // GetLogBuffer returns a copy of the current log buffer
-func (cc *ContainerContext) GetLogBuffer() []LogEntry {
+func (cc *ContainerContext) GetLogBuffer() []docker.LogEntry {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
 	
-	buffer := make([]LogEntry, len(cc.LogBuffer))
+	buffer := make([]docker.LogEntry, len(cc.LogBuffer))
 	copy(buffer, cc.LogBuffer)
 	return buffer
 }
@@ -208,13 +210,13 @@ func NewContainerContextManager() *ContainerContextManager {
 	return &ContainerContextManager{
 		contexts:   make(map[string]*ContainerContext),
 		orderedIDs: make([]string, 0),
-		colors:     getContainerColors(),
+		colors:     GetContainerColors(),
 		colorIndex: 0,
 	}
 }
 
 // InitializeContexts creates contexts for all containers
-func (ccm *ContainerContextManager) InitializeContexts(containers []Container, dockerService *DockerService, app *tview.Application) error {
+func (ccm *ContainerContextManager) InitializeContexts(containers []docker.Container, dockerService *docker.DockerService, app *tview.Application) error {
 	ccm.mu.Lock()
 	defer ccm.mu.Unlock()
 	
@@ -298,4 +300,26 @@ func (ccm *ContainerContextManager) Cleanup() {
 // StopAll stops all running contexts (alias for Cleanup for clarity)
 func (ccm *ContainerContextManager) StopAll() {
 	ccm.Cleanup()
+}
+
+// GetContainerColors returns the list of colors used for container display
+func GetContainerColors() []tcell.Color {
+	orangishWhite := tcell.NewRGBColor(255, 248, 235) // Single orangish white color
+	return []tcell.Color{
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+		orangishWhite,
+	}
 }

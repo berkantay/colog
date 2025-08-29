@@ -1,4 +1,4 @@
-package main
+package sdk
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 // Command-line interface for the SDK
-func runSDKCommand(args []string) error {
+func RunSDKCommand(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("SDK command required. Use 'colog sdk --help' for usage")
 	}

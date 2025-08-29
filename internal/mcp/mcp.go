@@ -1,4 +1,4 @@
-package main
+package mcp
 
 import (
 	"bufio"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/berkantay/colog/internal/docker"
 )
 
 // MCP Protocol Types for stdio transport
@@ -38,7 +40,7 @@ type ToolDefinition struct {
 }
 
 type MCPStdioServer struct {
-	dockerService *DockerService
+	dockerService *docker.DockerService
 	ctx           context.Context
 }
 
@@ -51,9 +53,9 @@ func NewMCPStdioServer() (*MCPStdioServer, error) {
 	}, nil
 }
 
-func (s *MCPStdioServer) getDockerService() (*DockerService, error) {
+func (s *MCPStdioServer) getDockerService() (*docker.DockerService, error) {
 	if s.dockerService == nil {
-		dockerService, err := NewDockerService()
+		dockerService, err := docker.NewDockerService()
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Docker: %w", err)
 		}
@@ -343,14 +345,14 @@ func (s *MCPStdioServer) handleExportLogsLLM(id interface{}, args map[string]int
 	output += fmt.Sprintf("Generated at: %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
 
 	for _, container := range containers {
-		logCh := make(chan LogEntry, 100)
+		logCh := make(chan docker.LogEntry, 100)
 		
 		go func() {
 			defer close(logCh)
 			s.dockerService.StreamLogs(s.ctx, container.ID, logCh)
 		}()
 
-		var logs []LogEntry
+		var logs []docker.LogEntry
 		timeout := time.After(3 * time.Second)
 		collected := 0
 
@@ -402,7 +404,7 @@ func (s *MCPStdioServer) handleFilterContainers(id interface{}, args map[string]
 	}
 
 	// Apply filters
-	var filtered []Container
+	var filtered []docker.Container
 	status, hasStatus := args["status"].(string)
 	image, hasImage := args["image"].(string)
 	name, hasName := args["name"].(string)
@@ -497,7 +499,7 @@ func (s *MCPStdioServer) sendResponse(response MCPResponse) {
 	fmt.Println(string(data))
 }
 
-func runMCPStdio() error {
+func RunMCPStdio() error {
 	server, err := NewMCPStdioServer()
 	if err != nil {
 		return fmt.Errorf("failed to create MCP stdio server: %w", err)

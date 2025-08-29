@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -12,6 +12,9 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	"github.com/berkantay/colog/internal/docker"
+	"github.com/berkantay/colog/internal/container"
 )
 
 type App struct {
@@ -19,8 +22,8 @@ type App struct {
 	grid          *tview.Grid
 	mainGrid      *tview.Grid
 	helpBar       *tview.TextView
-	dockerService *DockerService
-	contextManager *ContainerContextManager
+	dockerService *docker.DockerService
+	contextManager *container.ContainerContextManager
 	ctx           context.Context
 	cancel        context.CancelFunc
 	
@@ -40,7 +43,7 @@ func NewApp() *App {
 		grid:          tview.NewGrid(),
 		mainGrid:      tview.NewGrid(),
 		helpBar:       tview.NewTextView(),
-		contextManager: NewContainerContextManager(),
+		contextManager: container.NewContainerContextManager(),
 		ctx:           ctx,
 		cancel:        cancel,
 		selectedContainer: 0,
@@ -50,7 +53,7 @@ func NewApp() *App {
 
 func (a *App) Run() error {
 	var err error
-	a.dockerService, err = NewDockerService()
+	a.dockerService, err = docker.NewDockerService()
 	if err != nil {
 		return fmt.Errorf("failed to connect to Docker: %w", err)
 	}
@@ -313,8 +316,8 @@ func (a *App) exportLogsForLLM() {
 		}
 		
 		// Collect logs from all contexts
-		allLogs := make(map[string][]LogEntry)
-		var containers []Container
+		allLogs := make(map[string][]docker.LogEntry)
+		var containers []docker.Container
 		
 		for _, context := range contexts {
 			logBuffer := context.GetLogBuffer()
@@ -383,25 +386,6 @@ func (a *App) exportLogsForLLM() {
 	}()
 }
 
-func getContainerColors() []tcell.Color {
-	orangishWhite := tcell.NewRGBColor(255, 248, 235) // Single orangish white color
-	return []tcell.Color{
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-		orangishWhite,
-	}
-}
 
 func (a *App) restartFocusedContainer() {
 	if a.contextManager.Count() == 0 {
@@ -559,7 +543,7 @@ func (a *App) runSimpleMode() error {
 	return nil
 }
 
-func (a *App) streamContainerLogsSimple(context *ContainerContext) {
+func (a *App) streamContainerLogsSimple(context *container.ContainerContext) {
 	container := context.Container
 	fmt.Printf("\n=== %s (%s) ===\n", container.Name, container.ID)
 	

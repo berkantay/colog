@@ -66,7 +66,7 @@ test:
 # Build for current platform
 build: deps
 	@echo "🔨 Building $(APP_NAME) for current platform..."
-	go build $(LDFLAGS) -o $(APP_NAME) .
+	go build $(LDFLAGS) -o $(APP_NAME) ./cmd/colog
 
 # Build for all platforms
 build-all: clean deps $(BUILD_DIR)
@@ -83,7 +83,7 @@ define build_platform
 	$(eval EXT := $(if $(filter windows,$(GOOS)),.exe,))
 	$(eval OUTPUT := $(BUILD_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH)$(EXT))
 	@echo "Building $(OUTPUT)..."
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(LDFLAGS) -o $(OUTPUT) .
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(LDFLAGS) -o $(OUTPUT) ./cmd/colog
 endef
 
 # Create build directory
@@ -121,7 +121,7 @@ clean:
 # Install binary
 install: build
 	@echo "📥 Installing $(APP_NAME) to GOPATH/bin..."
-	go install $(LDFLAGS) .
+	go install $(LDFLAGS) ./cmd/colog
 
 # Test SDK functionality
 sdk-test: build
@@ -184,7 +184,7 @@ release: quick-release
 # Development targets
 dev-build:
 	@echo "🛠️  Building development version..."
-	go build -race $(LDFLAGS) -o $(APP_NAME)-dev .
+	go build -race $(LDFLAGS) -o $(APP_NAME)-dev ./cmd/colog
 
 dev-run: dev-build
 	@echo "🏃 Running development version..."

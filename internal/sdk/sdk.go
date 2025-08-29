@@ -1,4 +1,4 @@
-package main
+package sdk
 
 import (
 	"context"
@@ -7,11 +7,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/berkantay/colog/internal/docker"
 )
 
 // Colog provides programmatic access to Docker container logs and information
 type Colog struct {
-	dockerService *DockerService
+	dockerService *docker.DockerService
 	ctx           context.Context
 }
 
@@ -77,7 +79,7 @@ type LogsOutput struct {
 type ContainerLogCollection struct {
 	Container ContainerInfo `json:"container"`
 	LogCount  int           `json:"log_count"`
-	Logs      []LogEntry    `json:"logs"`
+	Logs      []docker.LogEntry    `json:"logs"`
 	TimeRange TimeRange     `json:"time_range"`
 }
 
@@ -98,7 +100,7 @@ type LogsSummary struct {
 
 // NewColog creates a new Colog SDK instance
 func NewColog(ctx context.Context) (*Colog, error) {
-	dockerService, err := NewDockerService()
+	dockerService, err := docker.NewDockerService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Docker service: %w", err)
 	}
@@ -184,9 +186,9 @@ func (c *Colog) GetContainersByImageID(imageID string) ([]ContainerInfo, error) 
 }
 
 // GetContainerLogs retrieves logs from a specific container
-func (c *Colog) GetContainerLogs(containerID string, options LogOptions) ([]LogEntry, error) {
-	logCh := make(chan LogEntry, 1000)
-	logs := make([]LogEntry, 0)
+func (c *Colog) GetContainerLogs(containerID string, options LogOptions) ([]docker.LogEntry, error) {
+	logCh := make(chan docker.LogEntry, 1000)
+	logs := make([]docker.LogEntry, 0)
 
 	// Create a context for log streaming
 	ctx := c.ctx
@@ -235,14 +237,14 @@ func (c *Colog) GetContainerLogs(containerID string, options LogOptions) ([]LogE
 }
 
 // GetMultipleContainerLogs retrieves logs from multiple containers
-func (c *Colog) GetMultipleContainerLogs(containerIDs []string, options LogOptions) (map[string][]LogEntry, error) {
-	result := make(map[string][]LogEntry)
+func (c *Colog) GetMultipleContainerLogs(containerIDs []string, options LogOptions) (map[string][]docker.LogEntry, error) {
+	result := make(map[string][]docker.LogEntry)
 	
 	for _, containerID := range containerIDs {
 		logs, err := c.GetContainerLogs(containerID, options)
 		if err != nil {
 			// Log error but continue with other containers
-			result[containerID] = []LogEntry{{
+			result[containerID] = []docker.LogEntry{{
 				ContainerID: containerID,
 				Timestamp:   time.Now(),
 				Message:     fmt.Sprintf("Error retrieving logs: %v", err),
@@ -279,7 +281,7 @@ func (c *Colog) ExportLogsForLLM(containerIDs []string, options LogOptions) (*Lo
 		Containers:  make([]ContainerLogCollection, 0),
 	}
 
-	var allLogs []LogEntry
+	var allLogs []docker.LogEntry
 	imageCount := make(map[string]int)
 	errorCount := 0
 
