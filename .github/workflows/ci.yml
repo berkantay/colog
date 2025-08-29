@@ -39,7 +39,7 @@ jobs:
       run: go mod tidy
 
     - name: Build
-      run: go build -v ./...
+      run: go build -v ./cmd/colog
 
     - name: Run tests
       run: go test -v ./...
@@ -68,15 +68,15 @@ jobs:
     - name: Build for multiple platforms
       run: |
         # Linux
-        GOOS=linux GOARCH=amd64 go build -o colog-linux-amd64 .
-        GOOS=linux GOARCH=arm64 go build -o colog-linux-arm64 .
+        GOOS=linux GOARCH=amd64 go build -o colog-linux-amd64 ./cmd/colog
+        GOOS=linux GOARCH=arm64 go build -o colog-linux-arm64 ./cmd/colog
         
         # macOS  
-        GOOS=darwin GOARCH=amd64 go build -o colog-darwin-amd64 .
-        GOOS=darwin GOARCH=arm64 go build -o colog-darwin-arm64 .
+        GOOS=darwin GOARCH=amd64 go build -o colog-darwin-amd64 ./cmd/colog
+        GOOS=darwin GOARCH=arm64 go build -o colog-darwin-arm64 ./cmd/colog
         
         # Windows
-        GOOS=windows GOARCH=amd64 go build -o colog-windows-amd64.exe .
+        GOOS=windows GOARCH=amd64 go build -o colog-windows-amd64.exe ./cmd/colog
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
