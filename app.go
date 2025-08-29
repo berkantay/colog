@@ -252,33 +252,6 @@ func (a *App) navigateDown() {
 	}
 }
 
-func (a *App) focusNextContainer() {
-	containerCount := a.contextManager.Count()
-	if containerCount == 0 {
-		return
-	}
-	
-	a.selectedContainer = (a.selectedContainer + 1) % containerCount
-	a.focusContainer(a.selectedContainer)
-}
-
-func (a *App) scrollUp() {
-	context := a.contextManager.GetContextByIndex(a.selectedContainer)
-	if context != nil && context.LogView != nil {
-		row, col := context.LogView.GetScrollOffset()
-		if row > 0 {
-			context.LogView.ScrollTo(row-1, col)
-		}
-	}
-}
-
-func (a *App) scrollDown() {
-	context := a.contextManager.GetContextByIndex(a.selectedContainer)
-	if context != nil && context.LogView != nil {
-		row, col := context.LogView.GetScrollOffset()
-		context.LogView.ScrollTo(row+1, col)
-	}
-}
 
 func (a *App) focusContainer(index int) {
 	containerCount := a.contextManager.Count()
