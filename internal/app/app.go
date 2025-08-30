@@ -31,6 +31,11 @@ type App struct {
 	selectedContainer int  // currently focused container
 	isFullscreen      bool // whether a container is in fullscreen mode
 	
+	// Search mode
+	searchMode    bool               // whether we're in search mode
+	searchInput   *tview.InputField  // search input field
+	searchResults *tview.TextView    // search results display
+	
 	// Help section for status messages
 	helpText      string
 }
@@ -160,7 +165,12 @@ func (a *App) setupHelpBar() {
 }
 
 func (a *App) updateHelpBar() {
-	baseText := "[#FF8C00]hjkl[white]: Navigate containers  [#FF8C00]Space[white]: Toggle fullscreen  [#FF8C00]y[white]: Export logs for LLM  [#FF8C00]q[white]: Quit  [#FF8C00]Ctrl+C[white]: Quit"
+	var baseText string
+	if a.searchMode {
+		baseText = "[#FF8C00]ESC[white]: Exit search  [#FF8C00]Type[white]: Search across all logs"
+	} else {
+		baseText = "[#FF8C00]hjkl[white]: Navigate containers  [#FF8C00]Space[white]: Toggle fullscreen  [#FF8C00]/[white]: Search logs  [#FF8C00]y[white]: Export logs for LLM  [#FF8C00]q[white]: Quit  [#FF8C00]Ctrl+C[white]: Quit"
+	}
 	
 	if a.helpText != "" {
 		text := baseText + "  " + a.helpText
@@ -216,6 +226,9 @@ func (a *App) setupKeyBindings() {
 				return nil
 			case 'x':
 				a.killFocusedContainer()
+				return nil
+			case '/':
+				a.toggleSearchMode()
 				return nil
 			}
 		}
@@ -504,6 +517,163 @@ func (a *App) refreshContainers() {
 			}
 		})
 	}()
+}
+
+// toggleSearchMode toggles search mode on/off
+func (a *App) toggleSearchMode() {
+	if a.searchMode {
+		// Exit search mode - restore normal layout
+		a.searchMode = false
+		
+		if a.isFullscreen {
+			a.toggleFullscreen() // Exit fullscreen
+			a.toggleFullscreen() // Re-enter fullscreen to reset
+		} else {
+			a.setupMainLayout()
+		}
+		
+		// Restore focus
+		a.focusContainer(a.selectedContainer)
+	} else {
+		// Enter search mode
+		a.searchMode = true
+		a.setupSearchLayout()
+	}
+}
+
+// setupSearchLayout creates the search interface
+func (a *App) setupSearchLayout() {
+	trueBlack := tcell.NewRGBColor(0, 0, 0)
+	
+	// Create search input if it doesn't exist
+	if a.searchInput == nil {
+		a.searchInput = tview.NewInputField().
+			SetLabel("Search: ").
+			SetLabelColor(tcell.ColorWhite).
+			SetFieldBackgroundColor(trueBlack).
+			SetFieldTextColor(tcell.ColorWhite)
+		
+		// Handle input changes
+		a.searchInput.SetChangedFunc(func(text string) {
+			a.performSearch(text)
+		})
+		
+		// Handle Escape key to exit search
+		a.searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyEscape {
+				a.toggleSearchMode()
+				return nil
+			}
+			return event
+		})
+	}
+	
+	// Create search results if it doesn't exist  
+	if a.searchResults == nil {
+		a.searchResults = tview.NewTextView().
+			SetDynamicColors(true).
+			SetScrollable(true).
+			SetWrap(true)
+		
+		a.searchResults.SetBackgroundColor(trueBlack)
+		a.searchResults.SetBorder(true).
+			SetBorderColor(tcell.NewRGBColor(128, 0, 128)).
+			SetTitle(" Search Results - ESC to exit ")
+	}
+	
+	// Set initial text
+	a.searchResults.SetText("Enter search term...")
+	
+	// Setup search layout (same pattern as fullscreen)
+	a.mainGrid.Clear()
+	a.mainGrid.SetRows(3, 0, 3). // Search input, results, help bar
+		SetColumns(0).
+		AddItem(a.searchInput, 0, 0, 1, 1, 0, 0, true).
+		AddItem(a.searchResults, 1, 0, 1, 1, 0, 0, false).
+		AddItem(a.helpBar, 2, 0, 1, 1, 0, 0, false)
+	
+	// Focus search input
+	a.app.SetFocus(a.searchInput)
+}
+
+// performSearch searches logs synchronously (like exportLogsForLLM)
+func (a *App) performSearch(searchTerm string) {
+	if searchTerm == "" {
+		a.searchResults.SetText("Enter search term...")
+		return
+	}
+	
+	contexts := a.contextManager.GetAllContexts()
+	if len(contexts) == 0 {
+		a.searchResults.SetText("No containers available for search")
+		return
+	}
+	
+	var results []string
+	searchTermLower := strings.ToLower(searchTerm)
+	
+	// Search through all container logs (simple synchronous approach)
+	for _, context := range contexts {
+		logBuffer := context.GetLogBuffer()
+		containerMatches := []string{}
+		
+		for _, logEntry := range logBuffer {
+			if strings.Contains(strings.ToLower(logEntry.Message), searchTermLower) {
+				// Highlight matches in purple
+				highlightedMessage := a.highlightSearchTerm(logEntry.Message, searchTerm)
+				timestamp := logEntry.Timestamp.Format("15:04:05")
+				matchLine := fmt.Sprintf("[gray]%s[white] %s", timestamp, highlightedMessage)
+				containerMatches = append(containerMatches, matchLine)
+			}
+		}
+		
+		if len(containerMatches) > 0 {
+			containerHeader := fmt.Sprintf("[orange]Container: %s (%d matches)[white]", context.Container.Name, len(containerMatches))
+			results = append(results, containerHeader)
+			results = append(results, containerMatches...)
+			results = append(results, "") // Empty line between containers
+		}
+	}
+	
+	// Update results
+	if len(results) == 0 {
+		a.searchResults.SetText(fmt.Sprintf("No matches found for: %s", searchTerm))
+	} else {
+		a.searchResults.SetText(strings.Join(results, "\n"))
+		a.searchResults.ScrollToBeginning()
+	}
+}
+
+// highlightSearchTerm adds purple highlighting (simple string replacement)
+func (a *App) highlightSearchTerm(text, searchTerm string) string {
+	if searchTerm == "" {
+		return text
+	}
+	
+	// Case-insensitive replacement with purple highlighting
+	searchLower := strings.ToLower(searchTerm)
+	textLower := strings.ToLower(text)
+	
+	var result strings.Builder
+	lastIndex := 0
+	
+	for {
+		index := strings.Index(textLower[lastIndex:], searchLower)
+		if index == -1 {
+			result.WriteString(text[lastIndex:])
+			break
+		}
+		
+		index += lastIndex
+		result.WriteString(text[lastIndex:index])
+		
+		originalMatch := text[index : index+len(searchTerm)]
+		result.WriteString(fmt.Sprintf("[purple]%s[white]", originalMatch))
+		
+		lastIndex = index + len(searchTerm)
+	}
+	
+	return result.String()
 }
 
 func isTTY() bool {
