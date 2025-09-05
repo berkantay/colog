@@ -207,7 +207,7 @@ Focus on finding entries that relate to the query's intent, not just keyword mat
 	if err != nil {
 		// Check if it's an API key issue
 		if strings.Contains(err.Error(), "401") {
-			return fmt.Errorf("Invalid OpenAI API key - check your .env file")
+			return fmt.Errorf("invalid OpenAI API key - check your .env file")
 		}
 		return fmt.Errorf("OpenAI streaming API error: %w", err)
 	}
@@ -504,9 +504,3 @@ func (ai *AIService) extractSummary(analysis string) string {
 	return "Log analysis completed"
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -525,55 +525,6 @@ func (a *App) killFocusedContainer() {
 	}()
 }
 
-// refreshContainers re-fetches the container list and updates the UI
-func (a *App) refreshContainers() {
-	go func() {
-		// Get fresh container list
-		containers, err := a.dockerService.ListRunningContainers(a.ctx)
-		if err != nil {
-			a.app.QueueUpdateDraw(func() {
-				a.showHelpMessage(fmt.Sprintf("[red]Failed to refresh containers: %v[white]", err), 3*time.Second)
-			})
-			return
-		}
-
-		a.app.QueueUpdateDraw(func() {
-			// Stop all existing contexts
-			a.contextManager.StopAll()
-			
-			// Clear the grid
-			a.grid.Clear()
-			
-			if len(containers) == 0 {
-				a.showHelpMessage("[yellow]No running containers found[white]", 3*time.Second)
-				return
-			}
-			
-			// Reinitialize contexts with fresh container list
-			if err := a.contextManager.InitializeContexts(containers, a.dockerService, a.app); err != nil {
-				a.showHelpMessage(fmt.Sprintf("[red]Failed to reinitialize contexts: %v[white]", err), 3*time.Second)
-				return
-			}
-			
-			// Adjust selected container index if needed
-			if a.selectedContainer >= len(containers) {
-				a.selectedContainer = len(containers) - 1
-			}
-			if a.selectedContainer < 0 {
-				a.selectedContainer = 0
-			}
-			
-			// Re-setup the grid layout
-			a.setupGrid()
-			
-			// Update focus
-			if len(containers) > 0 {
-				a.focusContainer(a.selectedContainer)
-			}
-		})
-	}()
-}
-
 // toggleSearchMode toggles literal search mode on/off
 func (a *App) toggleSearchMode() {
 	if a.searchMode || a.aiSearchMode || a.chatMode {
