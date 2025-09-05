@@ -1,7 +1,9 @@
-# Binaries
-colog
-colog-*
+# Binaries (but not source directories)  
+/colog
+/colog-*
 mcp-server
+cmd/*/colog
+cmd/*/colog-*
 *.exe
 *.exe~
 *.dll
