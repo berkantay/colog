@@ -283,19 +283,17 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 		return err
 	}
 	
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	go func() {
-		defer close(logCh)
-		defer stdout.Close()
-		defer cmd.Process.Kill()
-		
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 1024*1024)
-		
+	// Function to handle scanning from a pipe
+	scanPipe := func(scanner *bufio.Scanner, stream string) {
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
@@ -305,6 +303,7 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 				if line != "" {
 					entry := parseLogEntry(containerID, line)
 					if entry.Message != "" {
+						entry.Stream = stream
 						select {
 						case logCh <- entry:
 						case <-ctx.Done():
@@ -312,6 +311,45 @@ func (ds *DockerService) StreamLogs(ctx context.Context, containerID string, log
 						}
 					}
 				}
+			}
+		}
+	}
+
+	go func() {
+		defer close(logCh)
+		defer stdout.Close()
+		defer stderr.Close()
+		defer cmd.Process.Kill()
+		
+		// Create scanners for both stdout and stderr
+		stdoutScanner := bufio.NewScanner(stdout)
+		stderrScanner := bufio.NewScanner(stderr)
+		
+		buf := make([]byte, 0, 64*1024)
+		stdoutScanner.Buffer(buf, 1024*1024)
+		stderrScanner.Buffer(buf, 1024*1024)
+		
+		// Start goroutines to read from both streams
+		done := make(chan bool, 2)
+		
+		go func() {
+			scanPipe(stdoutScanner, "stdout")
+			done <- true
+		}()
+		
+		go func() {
+			scanPipe(stderrScanner, "stderr")
+			done <- true
+		}()
+		
+		// Wait for either context cancellation or both streams to finish
+		finished := 0
+		for finished < 2 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				finished++
 			}
 		}
 	}()

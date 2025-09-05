@@ -1014,6 +1014,15 @@ func (a *App) streamContainerLogsSimple(context *container.ContainerContext) {
 	container := context.Container
 	fmt.Printf("\n=== %s (%s) ===\n", container.Name, container.ID)
 	
+	// First, show recent logs using the reliable GetRecentLogs method
+	if recentLogs, err := a.dockerService.GetRecentLogs(a.ctx, container.ID, 10); err == nil {
+		for _, entry := range recentLogs {
+			timestamp := entry.Timestamp.Format("15:04:05")
+			fmt.Printf("[%s] %s: %s\n", timestamp, container.Name, entry.Message)
+		}
+	}
+	
+	// Then continue with streaming for new logs
 	for {
 		select {
 		case <-a.ctx.Done():

@@ -187,17 +187,44 @@ func (c *Colog) GetContainersByImageID(imageID string) ([]ContainerInfo, error) 
 
 // GetContainerLogs retrieves logs from a specific container
 func (c *Colog) GetContainerLogs(containerID string, options LogOptions) ([]docker.LogEntry, error) {
+	if options.Follow {
+		// For streaming logs, use the channel-based approach
+		return c.getStreamingLogs(containerID, options)
+	}
+
+	// For non-streaming logs, use the more reliable GetRecentLogs method
+	tail := options.Tail
+	if tail <= 0 {
+		tail = 100 // Default to 100 if not specified
+	}
+
+	logs, err := c.dockerService.GetRecentLogs(c.ctx, containerID, tail)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent logs: %w", err)
+	}
+
+	// Apply time-based filters
+	var filteredLogs []docker.LogEntry
+	for _, entry := range logs {
+		if !options.Since.IsZero() && entry.Timestamp.Before(options.Since) {
+			continue
+		}
+		if !options.Until.IsZero() && entry.Timestamp.After(options.Until) {
+			continue
+		}
+		filteredLogs = append(filteredLogs, entry)
+	}
+
+	return filteredLogs, nil
+}
+
+// getStreamingLogs handles the streaming/following case
+func (c *Colog) getStreamingLogs(containerID string, options LogOptions) ([]docker.LogEntry, error) {
 	logCh := make(chan docker.LogEntry, 1000)
 	logs := make([]docker.LogEntry, 0)
 
 	// Create a context for log streaming
 	ctx := c.ctx
-	if !options.Follow {
-		// For non-following requests, use a shorter timeout
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(c.ctx, 30*time.Second)
-		defer cancel()
-	}
 
 	err := c.dockerService.StreamLogs(ctx, containerID, logCh)
 	if err != nil {
