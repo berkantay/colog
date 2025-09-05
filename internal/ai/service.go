@@ -11,7 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/sashabaranov/go-openai"
-	"github.com/berkantay/colog/internal/docker"
+	"github.com/berkantay/colog/v2/internal/docker"
 )
 
 // AIService handles OpenAI API interactions

@@ -8,7 +8,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/berkantay/colog/internal/docker"
+	"github.com/berkantay/colog/v2/internal/docker"
 )
 
 // ContainerContext represents an isolated context for a single container

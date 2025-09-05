@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berkantay/colog/internal/docker"
+	"github.com/berkantay/colog/v2/internal/docker"
 )
 
 // MCP Protocol Types for stdio transport

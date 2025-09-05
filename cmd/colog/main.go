@@ -6,9 +6,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/berkantay/colog/internal/app"
-	"github.com/berkantay/colog/internal/sdk"
-	"github.com/berkantay/colog/internal/mcp"
+	"github.com/berkantay/colog/v2/internal/app"
+	"github.com/berkantay/colog/v2/internal/sdk"
+	"github.com/berkantay/colog/v2/internal/mcp"
 )
 
 func main() {

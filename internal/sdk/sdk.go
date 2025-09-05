@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berkantay/colog/internal/docker"
+	"github.com/berkantay/colog/v2/internal/docker"
 )
 
 // Colog provides programmatic access to Docker container logs and information
