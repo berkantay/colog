@@ -87,7 +87,7 @@ func (cc *ContainerContext) startLogStreaming(dockerService *docker.DockerServic
 	go func() {
 		err := dockerService.StreamLogs(cc.ctx, cc.Container.ID, cc.LogChannel)
 		if err != nil {
-			cc.appendLog(fmt.Sprintf("[red]Error streaming logs: %v[white]", err))
+			cc.AppendLog(fmt.Sprintf("[red]Error streaming logs: %v[white]", err))
 		}
 	}()
 	
@@ -119,13 +119,13 @@ func (cc *ContainerContext) processLogs() {
 			// Format and display log entry
 			timestamp := entry.Timestamp.Format("15:04:05")
 			logLine := fmt.Sprintf("[gray:#000000]%s[white:#000000] %s", timestamp, entry.Message)
-			cc.appendLog(logLine)
+			cc.AppendLog(logLine)
 		}
 	}
 }
 
-// appendLog adds a log line to the view (thread-safe)
-func (cc *ContainerContext) appendLog(message string) {
+// AppendLog adds a log line to the view (thread-safe)
+func (cc *ContainerContext) AppendLog(message string) {
 	if cc.LogView != nil && cc.app != nil {
 		cc.app.QueueUpdateDraw(func() {
 			fmt.Fprintf(cc.LogView, "%s\n", message)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/berkantay/colog/internal/docker"
 	"github.com/berkantay/colog/internal/container"
+	"github.com/berkantay/colog/internal/ai"
 )
 
 type App struct {
@@ -31,10 +32,16 @@ type App struct {
 	selectedContainer int  // currently focused container
 	isFullscreen      bool // whether a container is in fullscreen mode
 	
-	// Search mode
-	searchMode    bool               // whether we're in search mode
-	searchInput   *tview.InputField  // search input field
-	searchResults *tview.TextView    // search results display
+	// Search modes
+	searchMode       bool               // whether we're in literal search mode
+	aiSearchMode     bool               // whether we're in AI semantic search mode
+	chatMode         bool               // whether we're in AI chat mode
+	searchInput      *tview.InputField  // search input field
+	searchResults    *tview.TextView    // search results display
+	chatHistory      []string           // chat conversation history
+	
+	// AI service
+	aiService        *ai.AIService      // AI service for semantic search and chat
 	
 	// Help section for status messages
 	helpText      string
@@ -63,6 +70,13 @@ func (a *App) Run() error {
 		return fmt.Errorf("failed to connect to Docker: %w", err)
 	}
 	defer a.dockerService.Close()
+
+	// Initialize AI service (optional - will show message if API key not set)
+	a.aiService, err = ai.NewAIService()
+	if err != nil {
+		fmt.Printf("AI features disabled: %v\n", err)
+		fmt.Println("Create a .env file with: OPENAI_API_KEY=your-openai-api-key")
+	}
 
 	containers, err := a.dockerService.ListRunningContainers(a.ctx)
 	if err != nil {
@@ -168,8 +182,16 @@ func (a *App) updateHelpBar() {
 	var baseText string
 	if a.searchMode {
 		baseText = "[#FF8C00]ESC[white]: Exit search  [#FF8C00]Type[white]: Search across all logs"
+	} else if a.aiSearchMode {
+		baseText = "[#FF8C00]ESC[white]: Exit AI search  [#FF8C00]Type[white]: AI semantic search (powered by GPT-4o-mini)"
+	} else if a.chatMode {
+		baseText = "[#FF8C00]ESC[white]: Exit chat  [#FF8C00]Type[white]: Chat with your logs (powered by GPT-4o)"
 	} else {
-		baseText = "[#FF8C00]hjkl[white]: Navigate containers  [#FF8C00]Space[white]: Toggle fullscreen  [#FF8C00]/[white]: Search logs  [#FF8C00]y[white]: Export logs for LLM  [#FF8C00]q[white]: Quit  [#FF8C00]Ctrl+C[white]: Quit"
+		aiHint := ""
+		if a.aiService != nil {
+			aiHint = "  [#FF8C00]?[white]: AI search  [#FF8C00]C[white]: AI chat"
+		}
+		baseText = "[#FF8C00]hjkl[white]: Navigate containers  [#FF8C00]Space[white]: Toggle fullscreen  [#FF8C00]/[white]: Search logs" + aiHint + "  [#FF8C00]y[white]: Export logs for LLM  [#FF8C00]q[white]: Quit  [#FF8C00]Ctrl+C[white]: Quit"
 	}
 	
 	if a.helpText != "" {
@@ -181,6 +203,8 @@ func (a *App) updateHelpBar() {
 }
 
 func (a *App) setupMainLayout() {
+	// Clear existing layout completely and reset to normal 2-row layout
+	a.mainGrid.Clear()
 	a.mainGrid.SetBorders(false).
 		SetRows(0, 3).  // Main content takes available space, help bar takes 3 rows
 		SetColumns(0).   // Single column
@@ -192,6 +216,19 @@ func (a *App) setupMainLayout() {
 
 func (a *App) setupKeyBindings() {
 	a.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// When in search mode, only allow Ctrl+C and ESC to work
+		// All other keys should be handled by the search input field
+		if a.searchMode || a.aiSearchMode || a.chatMode {
+			switch event.Key() {
+			case tcell.KeyCtrlC:
+				a.cancel()
+				a.app.Stop()
+				return nil
+			}
+			// Pass all other events to the focused component (search input)
+			return event
+		}
+		
 		switch event.Key() {
 		case tcell.KeyCtrlC:
 			a.cancel()
@@ -229,6 +266,12 @@ func (a *App) setupKeyBindings() {
 				return nil
 			case '/':
 				a.toggleSearchMode()
+				return nil
+			case '?':
+				a.toggleAISearchMode()
+				return nil
+			case 'C':
+				a.toggleChatMode()
 				return nil
 			}
 		}
@@ -415,22 +458,36 @@ func (a *App) restartFocusedContainer() {
 	containerName := selectedContext.Container.Name
 	containerID := selectedContext.Container.ID
 	
-	a.showHelpMessage(fmt.Sprintf("[yellow]Restarting %s...[white]", containerName), 1*time.Second)
+	// Show immediate feedback
+	a.showHelpMessage(fmt.Sprintf("[yellow]Restarting %s...[white]", containerName), 3*time.Second)
+	
+	// Use a channel to communicate result back to main thread instead of QueueUpdateDraw from goroutine
+	resultChan := make(chan error, 1)
 	
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		
-		if err := a.dockerService.RestartContainer(ctx, containerID); err != nil {
-			a.app.QueueUpdateDraw(func() {
-				a.showHelpMessage(fmt.Sprintf("[red]Failed to restart %s: %v[white]", containerName, err), 3*time.Second)
-			})
+		err := a.dockerService.RestartContainer(ctx, containerID)
+		resultChan <- err
+		close(resultChan)
+	}()
+	
+	// Handle result in main thread without blocking
+	go func() {
+		err := <-resultChan
+		
+		// Use a simple approach - append to the container's log instead of help message
+		message := ""
+		if err != nil {
+			message = fmt.Sprintf("[red]RESTART FAILED: %v[white]", err)
 		} else {
-			a.app.QueueUpdateDraw(func() {
-				a.showHelpMessage(fmt.Sprintf("[green]✓ Restarted %s[white]", containerName), 2*time.Second)
-				// Refresh containers after restart
-				a.refreshContainers()
-			})
+			message = fmt.Sprintf("[green]RESTART SUCCESS: %s restarted[white]", containerName)
+		}
+		
+		// Add result to the selected container's log stream - this avoids QueueUpdateDraw conflicts
+		if selectedContext.LogView != nil {
+			selectedContext.AppendLog(message)
 		}
 	}()
 }
@@ -463,8 +520,6 @@ func (a *App) killFocusedContainer() {
 		} else {
 			a.app.QueueUpdateDraw(func() {
 				a.showHelpMessage(fmt.Sprintf("[red]✗ Killed %s[white]", containerName), 2*time.Second)
-				// Refresh containers after kill - this will remove dead containers
-				a.refreshContainers()
 			})
 		}
 	}()
@@ -519,44 +574,104 @@ func (a *App) refreshContainers() {
 	}()
 }
 
-// toggleSearchMode toggles search mode on/off
+// toggleSearchMode toggles literal search mode on/off
 func (a *App) toggleSearchMode() {
-	if a.searchMode {
-		// Exit search mode - restore normal layout
+	if a.searchMode || a.aiSearchMode || a.chatMode {
+		// Exit any active mode - restore normal layout
 		a.searchMode = false
+		a.aiSearchMode = false
+		a.chatMode = false
 		
-		if a.isFullscreen {
-			a.toggleFullscreen() // Exit fullscreen
-			a.toggleFullscreen() // Re-enter fullscreen to reset
-		} else {
-			a.setupMainLayout()
+		// Clear search input text for clean state
+		if a.searchInput != nil {
+			a.searchInput.SetText("")
 		}
 		
-		// Restore focus
+		// Simply restore the original layout (streams are preserved)
+		a.setupMainLayout()
+		
+		// Update help bar and restore focus
+		a.updateHelpBar()
 		a.focusContainer(a.selectedContainer)
 	} else {
-		// Enter search mode
+		// Enter literal search mode
 		a.searchMode = true
-		a.setupSearchLayout()
+		a.setupSearchLayout("Search")
 	}
 }
 
-// setupSearchLayout creates the search interface
-func (a *App) setupSearchLayout() {
+// toggleAISearchMode toggles AI semantic search mode on/off
+func (a *App) toggleAISearchMode() {
+	if a.aiService == nil {
+		a.showHelpMessage("[red]AI features disabled - create a .env file with OPENAI_API_KEY[white]", 3*time.Second)
+		return
+	}
+
+	if a.searchMode || a.aiSearchMode || a.chatMode {
+		// Exit any active mode - restore normal layout
+		a.searchMode = false
+		a.aiSearchMode = false
+		a.chatMode = false
+		
+		// Clear search input text for clean state
+		if a.searchInput != nil {
+			a.searchInput.SetText("")
+		}
+		
+		// Simply restore the original layout (streams are preserved)
+		a.setupMainLayout()
+		
+		// Update help bar and restore focus
+		a.updateHelpBar()
+		a.focusContainer(a.selectedContainer)
+	} else {
+		// Enter AI search mode
+		a.aiSearchMode = true
+		a.setupSearchLayout("AI Search")
+	}
+}
+
+// toggleChatMode toggles AI chat mode on/off
+func (a *App) toggleChatMode() {
+	if a.aiService == nil {
+		a.showHelpMessage("[red]AI features disabled - create a .env file with OPENAI_API_KEY[white]", 3*time.Second)
+		return
+	}
+
+	if a.searchMode || a.aiSearchMode || a.chatMode {
+		// Exit any active mode - restore normal layout
+		a.searchMode = false
+		a.aiSearchMode = false
+		a.chatMode = false
+		
+		// Clear search input text for clean state
+		if a.searchInput != nil {
+			a.searchInput.SetText("")
+		}
+		
+		// Simply restore the original layout (streams are preserved)
+		a.setupMainLayout()
+		
+		// Update help bar and restore focus
+		a.updateHelpBar()
+		a.focusContainer(a.selectedContainer)
+	} else {
+		// Enter chat mode
+		a.chatMode = true
+		a.setupSearchLayout("AI Chat")
+	}
+}
+
+// setupSearchLayout creates the search interface as overlay
+func (a *App) setupSearchLayout(mode string) {
 	trueBlack := tcell.NewRGBColor(0, 0, 0)
 	
 	// Create search input if it doesn't exist
 	if a.searchInput == nil {
 		a.searchInput = tview.NewInputField().
-			SetLabel("Search: ").
 			SetLabelColor(tcell.ColorWhite).
 			SetFieldBackgroundColor(trueBlack).
 			SetFieldTextColor(tcell.ColorWhite)
-		
-		// Handle input changes
-		a.searchInput.SetChangedFunc(func(text string) {
-			a.performSearch(text)
-		})
 		
 		// Handle Escape key to exit search
 		a.searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -568,6 +683,52 @@ func (a *App) setupSearchLayout() {
 		})
 	}
 	
+	// Update label and handler based on mode
+	if mode == "AI Search" {
+		a.searchInput.SetLabel("AI Search: ")
+		a.searchInput.SetChangedFunc(func(text string) {
+			// AI Search mode processes on Enter, not on change
+		})
+		a.searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyEscape {
+				a.toggleSearchMode()
+				return nil
+			} else if event.Key() == tcell.KeyEnter {
+				text := a.searchInput.GetText()
+				if text != "" {
+					a.performAISearch(text)
+					a.searchInput.SetText("")
+				}
+				return nil
+			}
+			return event
+		})
+	} else if mode == "AI Chat" {
+		a.searchInput.SetLabel("Chat: ")
+		a.searchInput.SetChangedFunc(func(text string) {
+			// Chat mode processes on Enter, not on change
+		})
+		a.searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyEscape {
+				a.toggleSearchMode()
+				return nil
+			} else if event.Key() == tcell.KeyEnter {
+				text := a.searchInput.GetText()
+				if text != "" {
+					a.performAIChat(text)
+					a.searchInput.SetText("")
+				}
+				return nil
+			}
+			return event
+		})
+	} else {
+		a.searchInput.SetLabel("Search: ")
+		a.searchInput.SetChangedFunc(func(text string) {
+			a.performSearch(text)
+		})
+	}
+	
 	// Create search results if it doesn't exist  
 	if a.searchResults == nil {
 		a.searchResults = tview.NewTextView().
@@ -576,24 +737,39 @@ func (a *App) setupSearchLayout() {
 			SetWrap(true)
 		
 		a.searchResults.SetBackgroundColor(trueBlack)
-		a.searchResults.SetBorder(true).
-			SetBorderColor(tcell.NewRGBColor(128, 0, 128)).
-			SetTitle(" Search Results - ESC to exit ")
+		a.searchResults.SetBorder(true)
 	}
 	
-	// Set initial text
-	a.searchResults.SetText("Enter search term...")
+	// Update border color and title based on mode
+	if mode == "AI Search" {
+		a.searchResults.SetBorderColor(tcell.NewRGBColor(0, 255, 127)). // Green for AI
+			SetTitle(" AI Semantic Search Results - ESC to exit ")
+		a.searchResults.SetText("Enter query for AI-powered semantic search...")
+	} else if mode == "AI Chat" {
+		a.searchResults.SetBorderColor(tcell.NewRGBColor(64, 224, 255)). // Blue for chat
+			SetTitle(" AI Chat - Press Enter to send, ESC to exit ")
+		a.searchResults.SetText("Ask questions about your logs. GPT-4o will analyze them for you...")
+	} else {
+		a.searchResults.SetBorderColor(tcell.NewRGBColor(128, 0, 128)). // Purple for regular search
+			SetTitle(" Search Results - ESC to exit ")
+		a.searchResults.SetText("Enter search term...")
+	}
 	
-	// Setup search layout (same pattern as fullscreen)
+	// KEEP EXISTING GRID INTACT - just add search overlay on top
+	// Change layout to: [search input] [original grid] [search results] [help bar]
 	a.mainGrid.Clear()
-	a.mainGrid.SetRows(3, 0, 3). // Search input, results, help bar
+	a.mainGrid.SetRows(3, 0, 8, 3). // Search input, original grid, search results, help bar
 		SetColumns(0).
 		AddItem(a.searchInput, 0, 0, 1, 1, 0, 0, true).
-		AddItem(a.searchResults, 1, 0, 1, 1, 0, 0, false).
-		AddItem(a.helpBar, 2, 0, 1, 1, 0, 0, false)
+		AddItem(a.grid, 1, 0, 1, 1, 0, 0, false).        // Keep original streaming grid
+		AddItem(a.searchResults, 2, 0, 1, 1, 0, 0, false).
+		AddItem(a.helpBar, 3, 0, 1, 1, 0, 0, false)
 	
 	// Focus search input
 	a.app.SetFocus(a.searchInput)
+	
+	// Update help bar
+	a.updateHelpBar()
 }
 
 // performSearch searches logs synchronously (like exportLogsForLLM)
@@ -674,6 +850,176 @@ func (a *App) highlightSearchTerm(text, searchTerm string) string {
 	}
 	
 	return result.String()
+}
+
+// performAISearch performs AI-powered semantic search
+func (a *App) performAISearch(query string) {
+	logs := a.getAllLogs()
+	if len(logs) == 0 {
+		a.app.QueueUpdateDraw(func() {
+			a.searchResults.SetText("[red]No logs available for AI search[white]")
+		})
+		return
+	}
+
+	// Perform AI search in background to avoid blocking UI
+	go func() {
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		
+		// Start loading animation
+		loadingDone := make(chan bool, 1)
+		go func() {
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			frame := 0
+			starFrames := []string{
+				"[cyan]✢[white]", "[blue]✣[white]", "[yellow]✤[white]", "[magenta]✥[white]",
+				"[green]✦[white]", "[red]✧[white]", "[cyan]✩[white]", "[blue]✪[white]",
+			}
+			
+			for {
+				select {
+				case <-loadingDone:
+					return
+				case <-ticker.C:
+					currentStar := starFrames[frame%len(starFrames)]
+					frame++
+					
+					a.app.QueueUpdateDraw(func() {
+						a.searchResults.SetText(fmt.Sprintf("%s Analyzing logs with AI for: [green]%s[white]\n\n[cyan]Processing with GPT-4o-mini...[white]", currentStar, query))
+						a.searchResults.ScrollToEnd()
+					})
+					a.app.ForceDraw()
+				}
+			}
+		}()
+		
+		// Perform the AI search
+		results, err := a.aiService.SemanticSearch(ctx, query, logs)
+		loadingDone <- true
+		
+		// Display results
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.searchResults.SetText(fmt.Sprintf("[red]AI Search Error: %v[white]", err))
+				return
+			}
+			
+			// Clear and show clean results
+			var output strings.Builder
+			output.WriteString(fmt.Sprintf("AI Semantic Search Results for: [green]%s[white]\n\n", query))
+			
+			if len(results) == 0 {
+				output.WriteString("[gray]No semantic matches found for this query.[white]")
+			} else {
+				for i, result := range results {
+					output.WriteString(fmt.Sprintf("[green]%d. Container: %s[white] ([yellow]%s[white])\n", i+1, result.Container, result.Relevance))
+					output.WriteString(fmt.Sprintf("   [gray]%s[white] %s\n", result.LogEntry.Timestamp.Format("15:04:05"), result.LogEntry.Message))
+					if result.Explanation != "" {
+						output.WriteString(fmt.Sprintf("   [cyan]%s[white]\n", result.Explanation))
+					}
+					output.WriteString("\n")
+				}
+			}
+			
+			a.searchResults.SetText(output.String())
+			a.searchResults.ScrollToEnd()
+		})
+		a.app.ForceDraw()
+	}()
+}
+
+// getAllLogs collects logs from all containers
+func (a *App) getAllLogs() map[string][]docker.LogEntry {
+	contexts := a.contextManager.GetAllContexts()
+	logs := make(map[string][]docker.LogEntry)
+	for _, context := range contexts {
+		logBuffer := context.GetLogBuffer()
+		if len(logBuffer) > 0 {
+			logs[context.Container.Name] = logBuffer
+		}
+	}
+	return logs
+}
+
+// performAIChat performs AI-powered chat analysis
+func (a *App) performAIChat(query string) {
+	if query == "" {
+		return
+	}
+	
+	if a.aiService == nil {
+		a.searchResults.SetText("[red]AI service not available - set OPENAI_API_KEY environment variable[white]")
+		return
+	}
+	
+	// Add user message to chat history
+	a.chatHistory = append(a.chatHistory, query)
+	
+	// Show loading message
+	currentChat := a.formatChatHistory()
+	currentChat += fmt.Sprintf("\n[blue]You:[white] %s\n\n🤖 GPT-4o is analyzing your logs...", query)
+	a.searchResults.SetText(currentChat)
+	a.searchResults.ScrollToEnd()
+	
+	// Get logs from all containers
+	contexts := a.contextManager.GetAllContexts()
+	if len(contexts) == 0 {
+		a.searchResults.SetText("No containers available for AI chat")
+		return
+	}
+	
+	logs := make(map[string][]docker.LogEntry)
+	for _, context := range contexts {
+		logBuffer := context.GetLogBuffer()
+		if len(logBuffer) > 0 {
+			logs[context.Container.Name] = logBuffer
+		}
+	}
+	
+	// Perform AI chat in background to avoid blocking UI
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		
+		response, err := a.aiService.ChatWithLogs(ctx, query, logs, a.chatHistory[:len(a.chatHistory)-1]) // Exclude the current query
+		
+		// Update UI in main thread
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.chatHistory = append(a.chatHistory, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.chatHistory = append(a.chatHistory, response.Analysis)
+			}
+			
+			// Update chat display
+			chatDisplay := a.formatChatHistory()
+			a.searchResults.SetText(chatDisplay)
+			a.searchResults.ScrollToEnd()
+		})
+	}()
+}
+
+// formatChatHistory formats the chat history for display
+func (a *App) formatChatHistory() string {
+	if len(a.chatHistory) == 0 {
+		return "🤖 AI Chat with your logs\nAsk questions like:\n- \"Why is my app slow?\"\n- \"What errors occurred in the last few minutes?\"\n- \"Are there any security issues?\"\n\nType your question and press Enter..."
+	}
+	
+	var output strings.Builder
+	output.WriteString("🤖 AI Chat Session\n\n")
+	
+	for i, msg := range a.chatHistory {
+		if i%2 == 0 { // User messages
+			output.WriteString(fmt.Sprintf("[blue]You:[white] %s\n\n", msg))
+		} else { // AI responses
+			output.WriteString(fmt.Sprintf("[green]🤖 GPT-4o:[white] %s\n\n", msg))
+		}
+	}
+	
+	return output.String()
 }
 
 func isTTY() bool {
