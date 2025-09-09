@@ -535,11 +535,6 @@ func isHexString(s string) bool {
 
 // StartSSEServer starts the MCP server with SSE support
 func StartSSEServer(host, port string) error {
-	server, err := NewMCPStdioServer()
-	if err != nil {
-		return fmt.Errorf("failed to create MCP server: %w", err)
-	}
-
 	mux := http.NewServeMux()
 	
 	// Health check endpoint

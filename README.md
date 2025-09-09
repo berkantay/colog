@@ -14,6 +14,9 @@ A powerful Docker container log viewer with both interactive TUI and programmati
 - **Grid Layout**: Beautiful, organized grid view with automatic container arrangement
 - **Vim-style Navigation**: Navigate containers with `hjkl` keys, fullscreen toggle with `Space`
 - **Color-Coded Containers**: Each container gets a unique color for easy identification
+- **AI-Powered Features**: Semantic search with `?` and AI chat with `C` (requires OpenAI API key)
+- **Container Management**: Restart containers with `r` and kill with `x`
+- **Advanced Search**: Literal search with `/` and AI semantic search with `?`
 - **Log Export**: Export logs for LLM analysis with `y` key
 - **Minimal & Clean**: Focus on logs with a distraction-free interface
 - **No Configuration**: Works out of the box with your Docker setup
@@ -28,11 +31,18 @@ A powerful Docker container log viewer with both interactive TUI and programmati
 - **Time-based Queries**: Retrieve logs within specific time ranges
 - **Command-line Interface**: Use SDK features directly from the command line
 
+### 🤖 MCP Server Mode
+- **Model Context Protocol**: Standardized LLM integration via MCP server
+- **Remote Access**: HTTP/SSE server for external LLM tools
+- **Authentication**: API key support for secure access
+- **Real-time Streaming**: Live log updates via Server-Sent Events
+- **Docker Integration**: Direct access to Claude Desktop and other MCP clients
+
 ## 🚀 Installation
 
 ### Option 1: Install with Go
 ```bash
-go install github.com/berkantay/colog@latest
+go install github.com/berkantay/colog/v2@latest
 ```
 
 ### Option 2: Build from Source
@@ -54,7 +64,7 @@ Download the latest release from [GitHub Releases](https://github.com/berkantay/
 
 ## 🎮 Usage
 
-Colog operates in two modes: **Interactive TUI** (default) and **SDK Mode** for programmatic access.
+Colog operates in three modes: **Interactive TUI** (default), **SDK Mode** for programmatic access, and **MCP Server Mode** for LLM integration.
 
 ### 🖥️ Interactive TUI Mode
 
@@ -91,21 +101,57 @@ colog sdk filter --image nginx
 colog sdk --help
 ```
 
+### 🤖 MCP Server Mode
+
+```bash
+# Start MCP server with SSE support
+colog -m sse
+
+# Start MCP server with stdio transport (for direct integration)
+colog -m stdio
+
+# Using Docker
+docker run -d \
+  --name colog-mcp \
+  -p 8080:8080 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  berkantay/colog-mcp:latest
+```
+
 ## ⌨️ Keyboard Controls
 
 | Key | Action | Description |
 |-----|--------|-------------|
 | `h,j,k,l` | Vim navigation | Navigate between containers using vim-style keys |
 | `Space` | Toggle fullscreen | Fullscreen the selected container or return to grid view |
+| `/` | Search logs | Search across all container logs with highlighting |
+| `?` | AI semantic search | AI-powered semantic search (requires OpenAI API key) |
+| `C` | AI chat | Chat with your logs using GPT-4o (requires OpenAI API key) |
+| `r` | Restart container | Restart the focused container |
+| `x` | Kill container | Kill the focused container |
 | `y` | Export logs | Export recent logs to clipboard in markdown format |
+| `ESC` | Exit modes | Exit search, AI search, or chat mode |
 | `q` | Quit application | Cleanly exit Colog and return to terminal |
 | `Ctrl+C` | Force quit | Immediately terminate the application |
 
 ### Navigation Tips
 - **Container Focus**: Use vim-style `hjkl` keys to navigate between containers
 - **Fullscreen Mode**: Press `Space` to focus on a single container, press again to return to grid
+- **Search & AI**: Use `/` for literal search, `?` for AI semantic search, `C` for AI chat
+- **Container Management**: Use `r` to restart or `x` to kill the focused container
 - **Log Export**: Press `y` to copy recent logs to clipboard for LLM analysis
 - **Clean Exit**: Always use `q` for a proper shutdown that ensures all resources are cleaned up
+
+### AI Features Setup
+Enable AI-powered features by creating a `.env` file:
+```bash
+echo "OPENAI_API_KEY=your-api-key-here" > .env
+```
+
+**AI Features:**
+- **Semantic Search (`?`)**: Find logs by meaning, not just keywords
+- **AI Chat (`C`)**: Ask GPT-4o questions about your logs in natural language
+- **Contextual Analysis**: AI understands your container architecture and log patterns
 
 ## 🏗️ How It Works
 
@@ -136,9 +182,10 @@ colog sdk --help
 ## 🔧 Development
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24+
 - Docker
 - Terminal with color support
+- OpenAI API key (optional, for AI features)
 
 ### Building
 ```bash
@@ -150,6 +197,9 @@ go build -o colog
 - `github.com/rivo/tview` - Terminal UI framework
 - `github.com/docker/docker` - Docker client library
 - `github.com/gdamore/tcell/v2` - Terminal handling
+- `github.com/sashabaranov/go-openai` - OpenAI API integration
+- `github.com/gorilla/websocket` - WebSocket support for MCP server
+- `github.com/gorilla/mux` - HTTP routing for MCP server
 
 ## 🐛 Troubleshooting
 
@@ -172,9 +222,13 @@ sudo usermod -aG docker $USER
 # Then log out and back in
 ```
 
-## 🚀 SDK Integration & LLM Usage
+## 🚀 Advanced Integration
 
+### SDK Usage
 For detailed SDK documentation and examples, see [SDK_README.md](SDK_README.md).
+
+### MCP Server Integration
+For Model Context Protocol server setup and remote LLM integration, see [MCP_README.md](MCP_README.md).
 
 ### Quick SDK Integration Example
 
@@ -185,20 +239,19 @@ import (
     "context"
     "fmt"
     "log"
+    "github.com/berkantay/colog/v2/internal/docker"
+    "github.com/berkantay/colog/v2/internal/sdk"
 )
 
 func main() {
     ctx := context.Background()
     
-    // Option 1: Automatic endpoint selection (recommended)
-    dockerService, err := colog.NewDockerService()
+    // Initialize Docker service
+    dockerService, err := docker.NewDockerService()
     if err != nil {
         log.Fatal(err)
     }
     defer dockerService.Close()
-    
-    // Option 2: Interactive endpoint selection
-    // dockerService, err := colog.NewDockerServiceInteractive()
     
     // Get all running containers
     containers, err := dockerService.ListRunningContainers(ctx)
@@ -208,12 +261,17 @@ func main() {
     
     fmt.Printf("Found %d running containers\n", len(containers))
     
-    // Stream logs from first container
+    // Get recent logs from first container
     if len(containers) > 0 {
-        logCh := make(chan colog.LogEntry, 100)
-        go dockerService.StreamLogs(ctx, containers[0].ID, logCh)
+        logs, err := dockerService.GetRecentLogs(ctx, containers[0].ID, 50)
+        if err != nil {
+            log.Fatal(err)
+        }
         
-        // Process logs...
+        fmt.Printf("Retrieved %d log entries\n", len(logs))
+        for _, logEntry := range logs {
+            fmt.Printf("[%s] %s\n", logEntry.Timestamp.Format("15:04:05"), logEntry.Message)
+        }
     }
 }
 ```
@@ -247,13 +305,14 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 5. Submit a pull request
 
 ### Ideas for Contributions
-- Container filtering options
-- Search functionality
-- Custom color themes
-- Keyboard navigation improvements
-- Advanced SDK features
-- Additional export formats
-- LLM integration examples
+- Enhanced AI features and integrations
+- Additional search algorithms and filters
+- Custom color themes and UI improvements
+- Advanced container management features
+- More export formats and integrations
+- Performance optimizations
+- Cross-platform compatibility improvements
+- Enhanced MCP server capabilities
 
 ## 🙏 Acknowledgments
 
