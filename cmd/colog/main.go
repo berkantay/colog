@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
 	"github.com/berkantay/colog/v2/internal/app"
 	"github.com/berkantay/colog/v2/internal/sdk"
@@ -70,23 +68,7 @@ func runMCPServer() error {
 
 	fmt.Printf("MCP Server will start on %s:%s\n", host, port)
 	
-	// Build and run the MCP server
-	cmd := exec.Command("go", "run", "./mcp/server.go")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(),
-		"MCP_PORT="+port,
-		"MCP_HOST="+host,
-	)
-	
-	// Pass through any existing MCP environment variables
-	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "MCP_") {
-			cmd.Env = append(cmd.Env, env)
-		}
-	}
-	
-	return cmd.Run()
+	return mcp.StartSSEServer(host, port)
 }
 
 func printHelp() {

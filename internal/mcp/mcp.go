@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -529,4 +531,44 @@ func isHexString(s string) bool {
 		}
 	}
 	return true
+}
+
+// StartSSEServer starts the MCP server with SSE support
+func StartSSEServer(host, port string) error {
+	server, err := NewMCPStdioServer()
+	if err != nil {
+		return fmt.Errorf("failed to create MCP server: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	
+	// Health check endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
+	// SSE endpoint for MCP protocol
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
+
+		// Handle the MCP protocol over SSE
+		// For now, return a simple response indicating the server is running
+		fmt.Fprintf(w, "data: %s\n\n", `{"jsonrpc":"2.0","id":null,"result":{"status":"MCP SSE Server Running","capabilities":["tools"]}}`)
+		
+		// Flush the data
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+
+	addr := fmt.Sprintf("%s:%s", host, port)
+	log.Printf("Starting MCP SSE server on %s", addr)
+	
+	return http.ListenAndServe(addr, mux)
 }
